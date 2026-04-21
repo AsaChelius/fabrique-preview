@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-write.js\"",
+            "timeout": 10,
+            "statusMessage": "Checking lane boundary (Edouard vs Asa) and secret hygiene..."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/warn-bash.js\"",
+            "timeout": 10,
+            "statusMessage": "Scanning bash for destructive patterns..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/format.js\"",
+            "timeout": 30,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/git-status.js\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(node:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git pull:*)",
+      "Bash(git fetch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase)",
+      "Bash(git remote:*)",
+      "Bash(git restore:*)",
+      "Bash(git init:*)",
+      "Bash(git config --local:*)",
+      "Bash(gh:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Read",
+      "Glob",
+      "Grep"
+    ],
+    "deny": [
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Write(**/.env)",
+      "Write(**/.env.*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(rm:*)"
+    ],
+    "defaultMode": "default"
+  }
+}
