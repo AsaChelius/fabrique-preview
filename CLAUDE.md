@@ -43,46 +43,142 @@ client project. Design bar is deliberately high — this is the calling card.
 
 **Live target:** Vercel. `main` → production; every PR gets a preview URL.
 
-### The hero (both lanes should understand this — it's the identity)
+### Aesthetic — cosmic / dark / physics-forward
 
-Dark, cinematic. A full-viewport **3D scene** renders the eight letters of
-`FABRIQUE` as glossy-obsidian rigid bodies tumbling on an invisible floor.
-The **cursor is a force field** — hovering pushes letters away, clicking
-throws them harder, flicking the mouse imparts extra momentum. Idle air
-currents apply gentle impulses every couple of seconds so the scene is never
-static. Letters clack together with synthed Web-Audio SFX on collision.
+Every route is a full-viewport R3F `<Canvas>` on a black starfield. The site
+feels like a series of cinematic scenes you navigate between — not pages with
+text. Bruno Simon playfulness meets JWST-poster seriousness. **No generic
+portfolio grids anywhere.**
 
-Think Bruno Simon's portfolio meets a precise obsidian-black studio
-aesthetic — playful physics toy, but grown-up finish.
+### Site structure — **discrete 3D routes** (not one long scroll)
 
-### Site structure — **discrete routes** (not one long scroll)
+Four routes, each with its own canvas and its own scene:
 
-- `/` (Studio / hero) — the physics-letter scene
-- `/coal` (Work) — dark coal pit with project "embers" as physics objects.
-  Click an ember → opens a project. Session 3 builds this out; today it's a
-  placeholder chunk-tumbling scene.
-- `/contact` — quiet form on dark gradient, no 3D.
+- **`/` — Studio (hero).** FABRIQUE letters as blue-outline / black-fill 3D
+  glyphs with custom PD-spring physics (no Rapier on this route — pure
+  manual physics). Six draggable iridescent orbs (varied shapes). Collisions
+  between letters + orbs play synthed SFX. Behind it all: a "black hole" —
+  `VortexTunnel` with tinted rings + pure-black event-horizon core. Camera
+  parallax follows cursor. **Clicking the Work tab from here triggers a
+  cinematic zoom into the singularity** (see Transitions below).
+- **`/coal` — Work.** Deep-space scene. JWST Carina nebula billboard
+  (custom shader with radial-fade so the square PNG edge is invisible).
+  Five project "planets" (stripe/grid/crystal/volcano/plasma — shapes in
+  `lib/projects.ts`). Twenty draggable debris shards (Rapier bodies with
+  a depth-Z snapshot drag system to prevent teleport bugs). Orbital
+  `FabriqueShip` with double-sided 3D "FABRIQUE" text on its hull —
+  clicking it fires the warp transition. Scene elements fade in staggered
+  via the `SceneFadeIn` wrapper so nothing pops.
+- **`/about` — About (cockpit).** Two astronauts (Edouard + Asa as pilot
+  callsigns) inside a detailed spaceship cockpit. Scripted multi-turn
+  dialogue runs on a loop — speech bubbles anchored above each pilot via
+  drei `<Html>`. 12 conversation scripts cycle with repeat-avoid logic.
+- **`/contact` — Contact.** Client-side form UI that POSTs JSON to
+  `/api/contact`. **Endpoint is Asa's** — see §4.
 
 A sticky pill nav (`.route-nav`, top-center) switches between them.
+Persistent `.site-backdrop` CSS starfield sits at `z-index: -1` so during
+canvas swaps the user sees stars, never a black void.
+
+### Transitions — cinematic, not instant
+
+- **Any route → `/`** (default): `app/template.tsx` Framer-Motion fade +
+  blur + scale.
+- **`/` → `/coal` only**: intercepted by `components/ui/route-nav.tsx`.
+  Fires a `vortex-zoom` CustomEvent that the hero scene listens for,
+  lerping the camera into the black hole over ~1.3s. A `.vortex-fade-overlay`
+  keyframe goes to full black. `router.push("/coal")` fires at 1350ms so
+  `/coal` mounts unseen; its `SceneFadeIn` groups then reveal the new scene
+  as the overlay fades out. Total ~2.4s.
+- **Ship click on `/coal`**: `WarpOverlay` (streaks + flash + vignette),
+  then route change.
+
+Everything respects `prefers-reduced-motion`.
+
+### Audio — synthed, no asset files
+
+`lib/sound.ts` owns the whole audio system. **Unlocked on first
+`pointerdown` / `keydown`** (see `RouteNav` useEffect). Then `startAmbient()`
+starts a detuned-oscillator drone + filter LFO + pentatonic chimes. Per-event
+SFX via `playSound(voice)` with voices:
+
+```
+clack | whoosh | ding | thud
+orb-pop | orb-knock | orb-ping | orb-chime | orb-wobble | orb-thump
+```
+
+Letter-letter collisions use `clack`. Each orb shape has its own voice
+(`orb-*`) so the scene sounds different when you drag different orbs.
 
 ### Stack (locked — don't swap libraries without asking)
 
-- **Next.js 16** (App Router) + **TypeScript strict**
+- **Next.js 16** (App Router) + **TypeScript strict** + **React 19**
 - **Tailwind CSS v4** — CSS-first `@theme` config in `app/globals.css`
-  (there is no `tailwind.config.ts`)
+  (there is no `tailwind.config.ts`). All route chrome is also in
+  `globals.css` — `.scene-root`, `.scene-overlay`, `.route-nav`,
+  `.hero-cta`, `.project-modal`, `.pilot-label`, `.pilot-chat-bubble`,
+  `.ship-label`, `.site-backdrop`, `.vortex-fade-overlay`, `.warp-overlay`.
 - **Three.js** via **`@react-three/fiber`** — 3D scene graph
-- **`@react-three/drei`** — helpers (`<Text3D>`, `<Environment>`, `<ContactShadows>`, `<Center>`)
-- **`@react-three/rapier`** — physics engine (replaces the old Matter.js 2D sim)
-- **`@react-three/postprocessing`** — bloom on letter edges
-- **Lenis** — smooth scroll (mounted in `layout.tsx` via `components/ui/smooth-scroll.tsx`)
-- **GSAP** — kept for scroll-triggered choreography (ScrollTrigger); not for DOM tweens
-- **Framer Motion** — optional, for 2D UI overlay transitions only
-- **Web Audio synth** at `lib/sound.ts` — `playSound("clack" | "whoosh" | "ding" | "thud")`.
-  Unlocked on first gesture. No asset files — sounds are synthed in-browser.
-- **Resend** — contact form email (backend lane)
+- **`@react-three/drei`** — `<Text3D>`, `<Html>`, `<Billboard>`, etc.
+- **`@react-three/rapier`** — used on `/coal` debris + ship; **NOT** on
+  hero (hero uses pure manual PD-spring physics for tight control).
+- **`@react-three/postprocessing`** — available but currently unused
+  (removed due to flashing issues; reintroduce with care).
+- **Lenis** — smooth scroll (`components/ui/smooth-scroll.tsx` mounted in
+  `layout.tsx`).
+- **GSAP** — installed; currently unused.
+- **Framer Motion** — route transition shell at `app/template.tsx`.
+- **Web Audio synth** — `lib/sound.ts`. No asset files.
+- **Resend** — contact form email (backend lane).
 
 No UI component libraries (shadcn, MUI, Chakra, etc.). Custom design is the
 point.
+
+### File map
+
+Quick lookup so both Claudes can navigate:
+
+```
+app/
+  layout.tsx             Root — mounts SmoothScroll, brand, RouteNav,
+                         WarpOverlay, VortexFadeOverlay, site-backdrop.
+  template.tsx           Framer-motion route transition wrapper.
+  globals.css            All custom CSS (theme + route chrome + overlays).
+  page.tsx               / — renders <HeroScene /> + hero copy.
+  coal/page.tsx          /coal — renders <CoalRoute />.
+  about/page.tsx         /about — renders <AboutRoute />.
+  contact/page.tsx       /contact — renders <ContactForm /> + copy.
+  api/contact/route.ts   POST endpoint — STUB (Asa owns).
+
+components/
+  three/
+    hero-scene.tsx       / — letters, orbs, vortex. Tuning constants up top.
+    coal-scene.tsx       /coal — nebula, planets, debris, ship, SceneFadeIn.
+    cockpit-scene.tsx    /about — cockpit + 2 pilots + dialogue anchors.
+  about/about-route.tsx  Wraps cockpit, owns dialogue state, about-panel.
+  coal/coal-route.tsx    Wraps coal scene, active project state + modal.
+  ui/
+    route-nav.tsx        Sticky nav. Intercepts / → /coal for vortex zoom.
+    smooth-scroll.tsx    Lenis mount.
+    warp-overlay.tsx     Ship-click streak/flash transition.
+    vortex-fade-overlay.tsx  Studio→Work fade-to-black shell.
+    contact-cta.tsx      Pill CTA used across hero copy.
+    contact-form.tsx     Client form — POSTs ContactFormData to /api/contact.
+    project-modal.tsx    Shown on /coal when a planet is clicked.
+
+lib/
+  sound.ts               Web Audio: unlockAudio, startAmbient, playSound(voice).
+  projects.ts            5 project entries (id, title, desc, tags, glowColor,
+                         planet shape, link).
+  server/                Asa's territory.
+
+public/
+  fonts/helvetiker_bold.typeface.json  For drei <Text3D>.
+  nebulas/carina.jpg     JWST Carina Nebula.
+
+types/
+  contact.ts             Shared — ContactFormData + ContactFormResponse.
+```
 
 ---
 
@@ -104,38 +200,48 @@ point.
 - `prisma/**`, `db/**` (if introduced)
 - `.env` / `.env.*` (both lanes — hand-managed, never committed)
 
-For the contact form: build the **UI + client-side validation only**, POST to
-`/api/contact`, and leave the endpoint untouched — Asa owns it. The shared
-payload shape lives in `types/contact.ts`.
+For the contact form: the UI is done (`components/ui/contact-form.tsx`) and
+POSTs JSON matching `ContactFormData` (from `types/contact.ts`) to
+`/api/contact`. **Don't touch the endpoint — Asa owns it.**
 
 ### Edouard's priorities
-1. **Ship the hero with real feel** — Rapier mass, restitution, friction,
-   damping values matter more than they sound. Run the physics; don't tune
-   by vibes. All hero tunables live in the `TUNING` constants at the top of
-   `components/three/hero-scene.tsx`.
-2. **Protect the hero's quality bar on every downstream section.** No filler.
-   No generic portfolio grids. No lorem ipsum committed to `main`.
-3. **Respect `prefers-reduced-motion`** for any motion-heavy section — fall
-   back to a static reveal.
-4. **Performance:** the R3F canvas is already client-only via `"use client"`.
-   Avoid re-mounting the canvas on nav; each route has its own canvas for
-   now (acceptable while scenes are small). TTI < 2s on 4G.
+1. **Physics feel matters more than physics correctness.** Hero uses
+   hand-rolled PD springs — all tunables are `TUNING` constants at the top
+   of `components/three/hero-scene.tsx`. Tune there, reload, repeat. Don't
+   re-introduce Rapier on the hero without a reason.
+2. **Seamless transitions.** Any new route must participate in the same
+   transition grammar (template fade minimum; custom only if it earns it).
+   Staggered `SceneFadeIn`-style reveal is the standard for 3D-heavy routes.
+3. **Protect the quality bar downstream.** No filler sections. No generic
+   portfolio grids. No lorem ipsum committed to `main`.
+4. **Respect `prefers-reduced-motion`** — all overlays (`.warp-overlay`,
+   `.vortex-fade-overlay`, `.hero-cta::before`, `.site-backdrop`) already
+   have reduced-motion escape hatches; new motion must too.
+5. **Performance:** each route owns its own canvas (acceptable while scenes
+   are small). Lazy-load anything >50kb. TTI < 2s on 4G.
 
 ### Conventions (frontend)
-- **File naming:** kebab-case (`hero-canvas.tsx`, `energy-orb.tsx`)
-- **Exports:** named, not default
-- **Colors:** stay on the palette defined in `app/globals.css` `@theme` — no
-  hardcoded hex values in components
-- **Custom CSS:** Tailwind first; raw CSS only for physics-adjacent or
-  shader-like effects. Use `@layer` properly.
+- **File naming:** kebab-case (`hero-scene.tsx`, `coal-route.tsx`).
+- **Exports:** named, not default.
+- **Client boundary:** every component that imports R3F, hooks, or browser
+  APIs starts with `"use client"`. Route `page.tsx` files are thin
+  server-components that just render a client component.
+- **Colors:** palette in `app/globals.css` `@theme`. Per-material accent
+  colors (letter blue, orb iridescence, planet glow) are fine inline — they
+  belong to the scene, not the design tokens.
+- **Custom CSS:** Tailwind first for UI chrome; raw CSS in `globals.css`
+  for shader-adjacent, overlay, and 3D-anchored HTML styling.
+- **Deterministic randomness** in scenes: use
+  `Math.sin(seed * 12.9898) * 43758.5453 % 1` seeded by an id, not
+  `Math.random()` — so things don't reshuffle every render.
 
 ### Agents (frontend)
-- `physics-doctor` — diagnose hero feel issues
-- `ui-reviewer` — run after shipping any non-trivial component, before commit
+- `physics-doctor` — diagnose hero feel issues.
+- `ui-reviewer` — run after shipping any non-trivial component, before commit.
 
 ### Skills (frontend)
-- `/hero-iterate` — tight loop for tuning the physics hero
-- `/ship-section` — canonical workflow for adding a new site section
+- `/hero-iterate` — tight loop for tuning the physics hero.
+- `/ship-section` — canonical workflow for adding a new site section.
 
 ---
 
@@ -149,26 +255,49 @@ payload shape lives in `types/contact.ts`.
 - `types/**` (shared — coordinate with Edouard)
 
 ### You must NOT edit
-- `app/page.tsx`, `app/layout.tsx`, `app/globals.css`
-- `app/(sections|marketing|hero|...)/**` — any frontend page/route code
+- `app/page.tsx`, `app/layout.tsx`, `app/template.tsx`, `app/globals.css`
+- `app/about/**`, `app/coal/**`, `app/contact/page.tsx` — frontend routes
 - `components/**`
 - `public/**`
 - `.env` / `.env.*`
 
 ### Stack for your work
-- **Route Handlers** (`route.ts` exports) — Next.js 16 App Router
+- **Route Handlers** (`route.ts` exports) — Next.js 16 App Router.
 - **Resend** for email (`RESEND_API_KEY` env var — share credentials
-  out-of-band, never commit)
-- **TypeScript strict** — match shared shapes in `types/`
+  out-of-band, never commit).
+- **TypeScript strict** — match shared shapes in `types/`.
 
 ### First task for Asa
-Implement `app/api/contact/route.ts` (currently a 501 stub). Requirements:
-- Server-side validation of `ContactFormData` (shape in `types/contact.ts`)
-- Honeypot field (`website`) must be empty — reject if filled
-- Rate-limit by IP (pick your approach — in-memory, Upstash, etc.)
-- Send via Resend to Edouard's inbox
-- Return 200 on success, 4xx on validation errors, 5xx on send failure
-- Return JSON matching `ContactFormResponse` (also in `types/contact.ts`)
+Implement `app/api/contact/route.ts` (currently a 501 stub).
+
+The frontend UI (`components/ui/contact-form.tsx`) already POSTs JSON
+matching `ContactFormData`:
+
+```ts
+// types/contact.ts
+export type ContactFormData = {
+  name: string;
+  email: string;
+  message: string;
+  website?: string;  // honeypot — must be empty from the real form
+};
+
+export type ContactFormResponse =
+  | { ok: true }
+  | { ok: false; error: string; field?: keyof ContactFormData };
+```
+
+Requirements:
+- Server-side validation of `ContactFormData`.
+- Honeypot: `body.website` must be empty — reject if filled (silent 200 is
+  acceptable so bots can't detect).
+- Rate-limit by IP (in-memory, Upstash, whatever you prefer).
+- Send via Resend to Edouard's inbox.
+- Return 200 on success, 4xx on validation errors, 5xx on send failure.
+- Return JSON matching `ContactFormResponse`.
+
+Anything server-only (validators, rate-limit state, resend client) goes in
+`lib/server/`.
 
 ### Optional — customize your local setup
 `.claude/settings.local.json` is gitignored, so it's safe to add personal
