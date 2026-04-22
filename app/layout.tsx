@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { RouteNav } from "@/components/ui/route-nav";
+import { SmoothScroll } from "@/components/ui/smooth-scroll";
+import { WarpOverlay } from "@/components/ui/warp-overlay";
+import { VortexFadeOverlay } from "@/components/ui/vortex-fade-overlay";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,7 +19,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "FABRIQUE — Edouard & Asa",
   description:
-    "A small studio turning ideas into sites that move. Physics-driven, dark, memorable.",
+    "A small studio building interactive, physics-driven sites and apps.",
 };
 
 export default function RootLayout({
@@ -24,10 +28,21 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-black text-white">
+      <body>
+        {/* Persistent starfield backdrop — sits behind every route so the
+            moment during route transitions when canvases unmount/mount
+            never shows a black void. */}
+        <div aria-hidden className="site-backdrop" />
+        <SmoothScroll />
+        <div className="brand">
+          <strong>FABRIQUE</strong>
+        </div>
+        <RouteNav />
         {children}
+        <WarpOverlay />
+        <VortexFadeOverlay />
       </body>
     </html>
   );

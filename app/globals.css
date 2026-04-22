@@ -1,17 +1,31 @@
+/* FABRIQUE — dark, 3D-first foundations.
+   Almost all visual identity now lives in the R3F canvas + scene lighting.
+   This file keeps only the page shell, typography, and route-nav chrome. */
+
 @import "tailwindcss";
 
-:root {
-  --background: #000000;
-  --foreground: #ffffff;
-  /* Drives glow / border pulse / hover intensity site-wide (0 → 1, scroll-bound). */
-  --energy: 0;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+/* Palette — declared as @theme so Tailwind v4 exposes them AND we can use
+   them as plain custom props via --color-* everywhere. */
+@theme {
+  --color-bg:         #05060a;
+  --color-bg-soft:    #0b0d14;
+  --color-fg:         #e6e8ee;
+  --color-fg-dim:     #8a8f9e;
+  --color-accent:     #4ea8ff;
+  --color-accent-warm:#ffb454;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+}
+
+/* Short aliases so the rest of the file (and any inline styles) can read
+   --bg / --fg / --fg-dim without the `color-` prefix. */
+:root {
+  --bg:        var(--color-bg);
+  --bg-soft:   var(--color-bg-soft);
+  --fg:        var(--color-fg);
+  --fg-dim:    var(--color-fg-dim);
+  --accent:    var(--color-accent);
+  --accent-warm: var(--color-accent-warm);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -24,8 +38,678 @@
   }
 }
 
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  background: #05060a;   /* explicit — don't let a missing var fall back to white */
+  color: #e6e8ee;
+  font-family: var(--font-sans), Inter, system-ui, sans-serif;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  /* Kill text selection + the I-beam cursor site-wide. Interactive
+     elements (links, buttons, form inputs) override cursor below. */
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+*,
+*::before,
+*::after {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Only form inputs get the text caret + selection back (contact page). */
+input,
+textarea {
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Obvious interactive elements get the pointer. */
+a,
+button,
+.hero-cta,
+.route-nav a {
+  cursor: pointer;
+}
+
+html {
+  overflow: hidden;   /* kills both x + y scrollbars — no gutter, no black edge */
+  scroll-behavior: smooth;
+  height: 100%;
+  width: 100%;
+  background: #05060a;
+}
+body {
+  overflow: hidden;
+  min-height: 100svh;
+  height: 100%;
+  width: 100%;
+  background: #05060a;
+  margin: 0;
+  padding: 0;
+}
+
+/* ---- Vortex-fade overlay (Studio → Work: zoom into the black hole) ----
+   A pure-black layer that fades in as the hero camera dives into the
+   singularity, holds opaque while the route swaps, then fades out revealing
+   the new /coal scene. The radial gradient in the fade-in phase makes the
+   black feel like it's swallowing out from the center, matching the pull
+   of the black hole in the 3D scene. */
+.vortex-fade-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 50%, #000 0%, #000 30%, rgba(0, 0, 0, 0) 80%);
+  opacity: 0;
+  animation: vortex-fade 2.4s cubic-bezier(0.6, 0, 0.4, 1) forwards;
+}
+
+@keyframes vortex-fade {
+  0%   { opacity: 0; }
+  52%  { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vortex-fade-overlay { animation: none; opacity: 0; display: none; }
+}
+
+/* ---- Warp transition overlay (fires on ship click) ---- */
+.warp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  overflow: hidden;
+}
+.warp-flash {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8vw;
+  height: 8vw;
+  transform: translate(-50%, -50%) scale(0);
+  background: radial-gradient(circle, #ffffff, #a0d0ff 40%, #4070ff 70%, transparent 100%);
+  animation: warp-flash 1.4s cubic-bezier(0.25, 1, 0.3, 1) forwards;
+  filter: blur(6px);
+}
+@keyframes warp-flash {
+  0%   { transform: translate(-50%, -50%) scale(0);  opacity: 0; }
+  20%  { transform: translate(-50%, -50%) scale(3);  opacity: 0.9; }
+  45%  { transform: translate(-50%, -50%) scale(18); opacity: 1; }
+  60%  { transform: translate(-50%, -50%) scale(28); opacity: 0.9; }
+  100% { transform: translate(-50%, -50%) scale(38); opacity: 0; }
+}
+
+.warp-streaks {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+.warp-streak {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 60vmax;
+  height: 2px;
+  transform-origin: 0 0;
+  opacity: 0;
+  animation: warp-streak 1.4s cubic-bezier(0.25, 1, 0.3, 1) forwards;
+  filter: blur(0.5px);
+}
+@keyframes warp-streak {
+  0%   { opacity: 0; width: 0; }
+  15%  { opacity: 1; width: 4vmax; }
+  55%  { opacity: 1; width: 70vmax; }
+  100% { opacity: 0; width: 90vmax; }
+}
+
+.warp-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at 50% 50%,
+    transparent 0%,
+    transparent 35%,
+    rgba(6, 8, 24, 0.85) 70%,
+    #02030a 100%
+  );
+  animation: warp-vignette 1.4s cubic-bezier(0.25, 1, 0.3, 1) forwards;
+  opacity: 0;
+}
+@keyframes warp-vignette {
+  0%   { opacity: 0; }
+  25%  { opacity: 1; }
+  75%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .warp-overlay { display: none; }
+}
+
+/* ---- Persistent site backdrop ----
+   Sits behind every route at z-index -1 with a layered gradient + CSS star
+   field so when a page's Canvas unmounts during a route transition, you
+   see stars, not a black void. */
+.site-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(1.5px 1.5px at 8% 12%,  #ffffff, transparent 60%),
+    radial-gradient(1px 1px     at 18% 34%, #eef4ff, transparent 50%),
+    radial-gradient(1.5px 1.5px at 28% 72%, #ffffff, transparent 60%),
+    radial-gradient(1px 1px     at 42% 22%, #c8d6ff, transparent 50%),
+    radial-gradient(1px 1px     at 52% 58%, #ffffff, transparent 50%),
+    radial-gradient(1.5px 1.5px at 66% 18%, #ffffff, transparent 60%),
+    radial-gradient(1px 1px     at 74% 46%, #e4ecff, transparent 50%),
+    radial-gradient(1px 1px     at 85% 68%, #ffffff, transparent 50%),
+    radial-gradient(1.5px 1.5px at 92% 24%, #ffffff, transparent 60%),
+    radial-gradient(1px 1px     at 12% 82%, #c8d6ff, transparent 50%),
+    radial-gradient(1px 1px     at 38% 88%, #ffffff, transparent 50%),
+    radial-gradient(1px 1px     at 62% 92%, #e4ecff, transparent 50%),
+    radial-gradient(1px 1px     at 88% 86%, #ffffff, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, #0a0d18 0%, #04050a 60%, #02030a 100%);
+  background-size:
+    400px 400px, 380px 380px, 420px 420px, 360px 360px,
+    440px 440px, 380px 380px, 400px 400px, 420px 420px,
+    360px 360px, 440px 440px, 400px 400px, 380px 380px,
+    420px 420px, 100% 100%;
+  animation: backdrop-drift 180s linear infinite;
+}
+@keyframes backdrop-drift {
+  to { background-position: -800px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-backdrop { animation: none; }
+}
+
+/* ---- Route canvas container ----
+   Each route owns a full-viewport R3F <Canvas>. Fixed so it fills the
+   viewport no matter what main/scene-overlay does. Background fully opaque
+   at every radius (no alpha leak) so body behind doesn't bleed through. */
+.scene-root {
+  position: fixed;
+  /* `inset: 0` alone fills the viewport correctly regardless of scrollbars;
+     `100vw`/`100svh` caused a thin black gutter on the right when a
+     scrollbar was ever reserved. */
+  inset: 0;
+  z-index: 0;
+  pointer-events: auto;
+  background: radial-gradient(ellipse at 50% 55%, #0a0c14 0%, #04050a 65%, #020205 100%);
+}
+
+/* Canvas child of scene-root fills it. */
+.scene-root > canvas,
+.scene-root > div {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+.scene-overlay {
+  position: relative;
+  z-index: 10;
+  pointer-events: none;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  /* No background — lets the fixed scene-root show through. */
+}
+/* By default the overlay is click-through so users can grab 3D objects
+   behind the copy text. Interactive elements (CTAs) opt back in explicitly. */
+.scene-overlay > * { pointer-events: none; }
+.scene-overlay .hero-cta { pointer-events: auto; }
+
+/* ---- Route nav ---- */
+.route-nav {
+  position: fixed;
+  top: 1.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.35rem;
+  border-radius: 999px;
+  background: rgba(10, 12, 18, 0.55);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.route-nav a {
+  position: relative;
+  padding: 0.55rem 1rem;
+  color: var(--fg-dim);
+  border-radius: 999px;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+.route-nav a:hover { color: var(--fg); }
+.route-nav a.active {
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ---- Wordmark brand (top-left) ---- */
+.brand {
+  position: fixed;
+  top: 1.75rem;
+  left: 1.75rem;
+  z-index: 50;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.3em;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+}
+.brand strong { color: var(--fg); font-weight: 600; letter-spacing: 0.38em; }
+
+/* ---- Generic hero copy (2D overlay over canvas) ---- */
+.hero-copy {
+  position: absolute;
+  left: 2vw;
+  bottom: 8vh;
+  max-width: 38ch;
+  color: var(--fg);
+  z-index: 20;
+  /* Text can't be highlighted or block pointer events — grab objects through
+     it. The CTA below opts back in via .hero-cta { pointer-events: auto }. */
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+}
+.hero-copy .eyebrow {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-bottom: 0.85rem;
+}
+.hero-copy h1 {
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-weight: 500;
+  color: var(--fg);
+  margin-bottom: 1rem;
+}
+.hero-copy p {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  max-width: 36ch;
+}
+
+/* Contact pill CTA — sits under .hero-copy on every page. Bigger, bolder,
+   with an idle shine that sweeps across every few seconds. */
+.hero-cta {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 2rem;
+  padding: 1.05rem 2rem;
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(78, 168, 255, 0.18), rgba(160, 80, 255, 0.12)),
+    rgba(14, 18, 28, 0.85);
+  border: 1px solid rgba(170, 200, 255, 0.35);
+  color: #ffffff;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.88rem;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  text-decoration: none;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(78, 168, 255, 0.15),
+    0 6px 24px rgba(78, 168, 255, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+.hero-cta::after {
+  content: "→";
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 1.1rem;
+  letter-spacing: 0;
+  transition: transform 0.2s ease;
+}
+/* Shimmer sweep — diagonal highlight that moves across the pill on a loop. */
+.hero-cta::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 45%;
+  height: 100%;
+  background: linear-gradient(
+    115deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0) 35%,
+    rgba(255, 255, 255, 0.28) 50%,
+    rgba(255, 255, 255, 0) 65%,
+    transparent 100%
+  );
+  transform: skewX(-18deg);
+  animation: cta-shimmer 3.6s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes cta-shimmer {
+  0%   { left: -60%; }
+  55%  { left: 120%; }
+  100% { left: 120%; }
+}
+.hero-cta:hover {
+  background:
+    linear-gradient(135deg, rgba(78, 168, 255, 0.3), rgba(160, 80, 255, 0.22)),
+    rgba(14, 18, 28, 0.9);
+  border-color: rgba(200, 220, 255, 0.6);
+  box-shadow:
+    0 0 0 1px rgba(78, 168, 255, 0.4),
+    0 10px 30px rgba(78, 168, 255, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transform: translateY(-2px);
+}
+.hero-cta:hover::after {
+  transform: translateX(3px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-cta::before { animation: none; display: none; }
+}
+
+/* ---- About-panel (cockpit route story) ---- */
+.about-panel {
+  position: absolute;
+  right: 3vw;
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: 440px;
+  padding: 2rem 2.25rem;
+  background: rgba(10, 14, 28, 0.55);
+  backdrop-filter: blur(10px) saturate(1.15);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+  border: 1px solid rgba(120, 170, 255, 0.22);
+  border-radius: 12px;
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.5);
+  color: #e6e8ee;
+  z-index: 20;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.about-panel .eyebrow {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-bottom: 0.85rem;
+}
+.about-heading {
+  font-size: clamp(1.6rem, 2.6vw, 2.2rem);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  font-weight: 500;
+  color: #f0f3fa;
+  margin-bottom: 1.3rem;
+}
+.about-body p {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #c0c6d4;
+  margin-bottom: 1rem;
+}
+.about-body strong { color: #ffffff; font-weight: 600; }
+.about-body em { color: #8bb6ff; font-style: normal; letter-spacing: 0.05em; }
+
+/* ---- Pilot name label (drei <Html> under each astronaut in cockpit) ---- */
+.pilot-label {
+  padding: 0.25rem 0.7rem;
+  background: rgba(10, 14, 28, 0.7);
+  border: 1px solid rgba(120, 170, 255, 0.4);
+  border-radius: 999px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: #eaf2ff;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* ---- Pilot chat bubble (anchored above each astronaut in 3D via <Html>) ----
+   Slot always rendered so transitions are smooth; `.is-visible` fades it in
+   when the speaker has a line. */
+.pilot-chat-bubble {
+  padding: 0.85rem 1.15rem;
+  background: rgba(10, 14, 28, 0.88);
+  border: 1px solid rgba(120, 170, 255, 0.55);
+  border-radius: 14px;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 1rem;
+  line-height: 1.38;
+  color: #eaf2ff;
+  max-width: 260px;
+  min-width: 120px;
+  text-align: center;
+  white-space: normal;
+  position: relative;
+  opacity: 0;
+  transform: translateY(8px) scale(0.95);
+  transition:
+    opacity 0.3s cubic-bezier(0.2, 1, 0.3, 1),
+    transform 0.3s cubic-bezier(0.2, 1, 0.3, 1);
+  pointer-events: none;
+  user-select: none;
+}
+.pilot-chat-bubble.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+/* Pointer tail at the bottom, pointing down to the pilot's helmet. */
+.pilot-chat-bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  background: rgba(10, 14, 28, 0.88);
+  border: inherit;
+  border-top: 0;
+  border-left: 0;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+/* ---- FABRIQUE ship label (floats above the spaceship via drei <Html>) ---- */
+.ship-label {
+  pointer-events: none;
+  user-select: none;
+}
+.ship-label-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.45rem 0.9rem;
+  background: rgba(10, 14, 28, 0.75);
+  border: 1px solid rgba(90, 160, 255, 0.5);
+  border-radius: 999px;
+  box-shadow: 0 0 18px rgba(90, 160, 255, 0.35);
+  white-space: nowrap;
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+.ship-label-name {
+  color: #eaf2ff;
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.28em;
+}
+.ship-label-hint {
+  color: #8bb6ff;
+  font-size: 0.58rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+/* ---- Project modal (coal page) ---- */
+.project-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  /* Translucent backdrop so the planet's crack-open animation stays visible
+     behind the panel — the scene is part of the show, not hidden by it. */
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.25) 0%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+  backdrop-filter: blur(2px) saturate(1.05);
+  -webkit-backdrop-filter: blur(2px) saturate(1.05);
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  animation: modal-fade-in 0.45s ease-out both;
+}
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.project-modal-panel {
+  position: relative;
+  max-width: 560px;
+  width: 100%;
+  background: linear-gradient(165deg, #0d0f18 0%, #05060a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 2.5rem 2.5rem 2rem;
+  border-radius: 10px;
+  color: #e6e8ee;
+  animation: modal-panel-in 0.5s cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+@keyframes modal-panel-in {
+  from { opacity: 0; transform: translateY(18px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+.project-modal-close {
+  position: absolute;
+  top: 0.9rem;
+  right: 0.9rem;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: #8a8f9e;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  display: grid;
+  place-items: center;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.project-modal-close:hover {
+  color: #e6e8ee;
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.04);
+}
+.project-modal-tag {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  margin-bottom: 0.8rem;
+}
+.project-modal-title {
+  font-size: clamp(1.8rem, 3.6vw, 2.6rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-weight: 500;
+  margin-bottom: 1.1rem;
+}
+.project-modal-desc {
+  font-size: 0.96rem;
+  line-height: 1.65;
+  color: #b4b8c4;
+  margin-bottom: 1.6rem;
+}
+.project-modal-tech {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 1.6rem;
+}
+.project-modal-chip {
+  padding: 0.35rem 0.7rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #b4b8c4;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+.project-modal-link {
+  display: inline-block;
+  padding: 0.7rem 1.3rem;
+  border-radius: 999px;
+  background: #e6e8ee;
+  color: #05060a;
+  font-weight: 600;
+  font-size: 0.82rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: transform 0.15s ease;
+}
+.project-modal-link:hover { transform: translateY(-1px); }
+
+/* ---- Hint tag (bottom-right, tells the user to interact) ---- */
+.hero-hint {
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+  position: absolute;
+  right: 2vw;
+  bottom: 8vh;
+  z-index: 20;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  opacity: 0.8;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  text-align: right;
+}
+.hero-hint .key {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  margin-left: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  color: var(--fg);
 }
