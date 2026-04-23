@@ -223,8 +223,6 @@ function NebulaImage({
       uMap: { value: null as THREE.Texture | null },
       uTint: { value: new THREE.Color(tint) },
       uOpacity: { value: opacity },
-      uFadeStart: { value: 0.22 },
-      uFadeEnd: { value: 0.5 },
     }),
     [tint, opacity],
   );
@@ -242,14 +240,18 @@ function NebulaImage({
   return (
     <mesh ref={ref} position={position} scale={[flipX ? -1 : 1, 1, 1]}>
       <planeGeometry args={[w, h]} />
-      {/* Custom shader: multiply RGB by a radial fade so the plane's square
-          edges go to pure black. With additive blending, black = invisible,
-          so you can't see the rectangle anymore. */}
+      {/* Custom shader: multiply RGB by a gentle corner fade so the plane's
+          square edges go to black. Additive blending then turns those black
+          edges invisible. `side: DoubleSide` is required because flipX uses
+          scale.x = -1 which reverses winding and would cull a FrontSide
+          plane entirely (you'd see nothing). Intensity boost pushes the
+          additive contribution above the ambient starfield. */}
       <shaderMaterial
         uniforms={uniforms}
         transparent
         depthWrite={false}
         blending={THREE.AdditiveBlending}
+        side={THREE.DoubleSide}
         toneMapped={false}
         vertexShader={`
           varying vec2 vUv;
@@ -262,21 +264,24 @@ function NebulaImage({
           uniform sampler2D uMap;
           uniform vec3 uTint;
           uniform float uOpacity;
-          uniform float uFadeStart;
-          uniform float uFadeEnd;
           varying vec2 vUv;
 
           void main() {
             vec4 tex = texture2D(uMap, vUv);
-            // Radial fade from center (1.0) to edge (0.0), smoothed.
+            // Soft corner-only fade — only the outermost 10% of the plane
+            // fades to black. Anything closer to the center shows full
+            // texture so wisps and filaments aren't eaten.
             vec2 fc = vUv - 0.5;
             float dist = length(fc);
-            float fade = 1.0 - smoothstep(uFadeStart, uFadeEnd, dist);
-            // Additionally crush any near-black background pixels so tiny
-            // non-zero noise in the JPG doesn't add up to a visible glow.
-            float luma = max(max(tex.r, tex.g), tex.b);
-            float crush = smoothstep(0.05, 0.2, luma);
-            vec3 col = tex.rgb * uTint * fade * crush * uOpacity;
+            float fade = 1.0 - smoothstep(0.4, 0.5, dist);
+            // If the PNG has real alpha (transparent background), honor it
+            // too — multiplying by tex.a plus the corner fade makes both
+            // types of source assets disappear cleanly at the edges.
+            float alpha = tex.a;
+            // Brightness: the 2.4× multiplier compensates for additive-
+            // blend attenuation against a dark starfield — without it the
+            // nebula tints read as barely-there smoke.
+            vec3 col = tex.rgb * uTint * fade * alpha * uOpacity * 2.4;
             gl_FragColor = vec4(col, 1.0);
           }
         `}
