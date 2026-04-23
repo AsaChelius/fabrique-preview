@@ -186,17 +186,48 @@ function NebulaImage({
   /** Mirror horizontally so the same nebula reads differently on reuse. */
   flipX?: boolean;
 }) {
-  // Manual TextureLoader — render nothing on 404 instead of throwing.
+  // Manual TextureLoader — on success, pipe the image through a canvas and
+  // multiply it by a radial gradient (white center, black edges). That bakes
+  // a circular falloff directly into the texture's RGB, so under additive
+  // blending the corners of the plane contribute zero and the nebula edges
+  // disappear into the void instead of showing as a rectangle. Avoids
+  // custom shader entirely.
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
   useEffect(() => {
+    if (typeof document === "undefined") return;
     const loader = new THREE.TextureLoader();
     let cancelled = false;
     loader.load(
       url,
       (tex) => {
         if (cancelled) return;
-        tex.colorSpace = THREE.SRGBColorSpace;
-        setTexture(tex);
+        const img = tex.image as HTMLImageElement;
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          setTexture(null);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        // Multiply blend with a radial gradient: full brightness through
+        // the inner 55%, smooth fade to pure black at the edge. After
+        // this, the four PNG corners are hard black.
+        const cx = img.width / 2;
+        const cy = img.height / 2;
+        const rmax = Math.min(img.width, img.height) / 2;
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rmax);
+        grad.addColorStop(0, "rgba(255,255,255,1)");
+        grad.addColorStop(0.55, "rgba(255,255,255,1)");
+        grad.addColorStop(1, "rgba(0,0,0,1)");
+        ctx.globalCompositeOperation = "multiply";
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, img.width, img.height);
+        const masked = new THREE.CanvasTexture(canvas);
+        masked.colorSpace = THREE.SRGBColorSpace;
+        masked.needsUpdate = true;
+        setTexture(masked);
       },
       undefined,
       () => {
@@ -221,13 +252,11 @@ function NebulaImage({
   const [w, h] = typeof scale === "number" ? [scale, scale] : scale;
   return (
     <mesh ref={ref} position={position} scale={[flipX ? -1 : 1, 1, 1]}>
+      {/* Plane is fine — the texture itself has been radially masked on
+          load (see effect above). Its four corners are baked pure black,
+          the outer ring fades smoothly to black, so under additive blend
+          nothing outside the nebula body contributes any light. */}
       <planeGeometry args={[w, h]} />
-      {/* Three's built-in unlit textured material with additive blending.
-          The PNG's black space background adds nothing under additive
-          (black contributes 0), so square edges disappear naturally.
-          `color` multiplies with texture RGB to tint each instance.
-          DoubleSide is mandatory because flipX uses scale.x = -1 which
-          reverses winding — a FrontSide plane would be back-face culled. */}
       <meshBasicMaterial
         map={texture}
         color={tint}
