@@ -148,178 +148,6 @@ function SceneFadeIn({
 // Background: nebulas + dust + shooting stars
 // -----------------------------------------------------------------------------
 
-/** Generate a procedural nebula texture on a canvas — many radial blobs,
-    star specks, and a soft vignette — so billboard sprites feel like real
-    gas clouds instead of flat colored spheres. Keyed by color + seed so each
-    nebula gets its own unique pattern. */
-function buildNebulaTexture(
-  color: string,
-  seed: number,
-  size = 256,
-): THREE.CanvasTexture | null {
-  if (typeof document === "undefined") return null;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-
-  // Deterministic PRNG.
-  const rand = (n: number) => {
-    const x = Math.sin(seed + n * 12.9898) * 43758.5453;
-    return x - Math.floor(x);
-  };
-
-  ctx.clearRect(0, 0, size, size);
-
-  // Many overlapping radial blobs — the core of the nebula texture.
-  const blobs = 40;
-  for (let i = 0; i < blobs; i++) {
-    const x = rand(i) * size;
-    const y = rand(i + 100) * size;
-    const r = size * (0.08 + rand(i + 200) * 0.22);
-    const alpha = 0.25 + rand(i + 300) * 0.55;
-    const grd = ctx.createRadialGradient(x, y, 0, x, y, r);
-    grd.addColorStop(0, `${color}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`);
-    grd.addColorStop(0.45, `${color}22`);
-    grd.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = grd;
-    ctx.fillRect(x - r, y - r, r * 2, r * 2);
-  }
-
-  // Star specks embedded in the nebula.
-  for (let i = 0; i < 140; i++) {
-    const x = rand(i + 900) * size;
-    const y = rand(i + 1000) * size;
-    const a = 0.3 + rand(i + 1100) * 0.7;
-    const r = rand(i + 1200) > 0.9 ? 2 : 1;
-    ctx.fillStyle = `rgba(255, 245, 220, ${a})`;
-    ctx.fillRect(x, y, r, r);
-  }
-
-  // Circular vignette: opaque at center → transparent at edges so the
-  // billboard's square borders never show.
-  // (Was inverted before — that's why you were seeing rectangles.)
-  const vign = ctx.createRadialGradient(
-    size / 2,
-    size / 2,
-    0,
-    size / 2,
-    size / 2,
-    size * 0.5,
-  );
-  vign.addColorStop(0, "rgba(0,0,0,1)");
-  vign.addColorStop(0.6, "rgba(0,0,0,0.7)");
-  vign.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.globalCompositeOperation = "destination-in";
-  ctx.fillStyle = vign;
-  ctx.fillRect(0, 0, size, size);
-  ctx.globalCompositeOperation = "source-over";
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.needsUpdate = true;
-  return tex;
-}
-
-/** Nebula — layered additive billboard sprites using the procedural texture.
-    Multiple sprites at slight z-offsets give volume + parallax. */
-function Nebula({
-  position,
-  scale,
-  color,
-  speed = 0.02,
-}: {
-  position: [number, number, number];
-  scale: number;
-  color: string;
-  speed?: number;
-}) {
-  const ref = useRef<THREE.Group>(null);
-  const seed = position[0] * 13 + position[1] * 7 + position[2] * 3;
-  const rand = (n: number) => {
-    const x = Math.sin(seed + n * 12.9898) * 43758.5453;
-    return x - Math.floor(x);
-  };
-
-  // Three canvas textures per nebula — each a different pattern but the same
-  // color, so the layers don't feel repetitive.
-  const textures = useMemo(
-    () => [
-      buildNebulaTexture(color, seed + 1),
-      buildNebulaTexture(color, seed + 17),
-      buildNebulaTexture(color, seed + 41),
-    ],
-    [color, seed],
-  );
-
-  // 8 sprite layers — varying scale + offset + rotation.
-  const layers = useMemo(
-    () =>
-      Array.from({ length: 8 }, (_, i) => ({
-        offset: [
-          (rand(i + 10) - 0.5) * scale * 0.6,
-          (rand(i + 40) - 0.5) * scale * 0.5,
-          (rand(i + 70) - 0.5) * scale * 0.4,
-        ] as [number, number, number],
-        scale: scale * (0.7 + rand(i + 90) * 0.7),
-        rotation: rand(i + 120) * Math.PI * 2,
-        opacity: 0.18 + rand(i + 150) * 0.22,
-        texIdx: i % 3,
-        phase: rand(i + 180) * Math.PI * 2,
-      })),
-    [scale, rand],
-  );
-
-  useFrame((_, delta) => {
-    if (ref.current) {
-      ref.current.rotation.z += delta * speed * 0.4;
-      const t = performance.now() * 0.0005;
-      ref.current.children.forEach((c, i) => {
-        const l = layers[i];
-        if (!l) return;
-        const s = l.scale * (1 + Math.sin(t + l.phase) * 0.05);
-        c.scale.set(s, s, 1);
-        (c as THREE.Mesh).rotation.z = l.rotation + Math.sin(t * 0.4 + l.phase) * 0.1;
-      });
-    }
-  });
-
-  return (
-    <group ref={ref} position={position}>
-      {layers.map((l, i) => {
-        const tex = textures[l.texIdx];
-        if (!tex) return null;
-        return (
-          <mesh key={i} position={l.offset} rotation={[0, 0, l.rotation]}>
-            <planeGeometry args={[1, 1]} />
-            <meshBasicMaterial
-              map={tex}
-              color={color}
-              transparent
-              opacity={l.opacity}
-              blending={THREE.AdditiveBlending}
-              depthWrite={false}
-              toneMapped={false}
-            />
-          </mesh>
-        );
-      })}
-      {/* Soft base glow so the nebula has a dim fill even outside the blobs. */}
-      <mesh scale={scale * 0.5}>
-        <sphereGeometry args={[1, 12, 12]} />
-        <meshBasicMaterial
-          color={color}
-          transparent
-          opacity={0.05}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-          toneMapped={false}
-        />
-      </mesh>
-    </group>
-  );
-}
-
 /**
  * Image-textured nebula billboard — the only realistic way to hit JWST-
  * quality visuals is to use actual JWST / Hubble / ESA imagery. They're all
@@ -1846,31 +1674,57 @@ export function CoalScene({
           <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={0.5} />
         </SceneFadeIn>
 
-        {/* Stage 2 — nebulas layer in next. */}
-        <SceneFadeIn delay={400} duration={1200}>
-          <Nebula position={[-14, 5, -22]} scale={14} color="#6a30ff" speed={0.015} />
-          <Nebula position={[16, -3, -26]} scale={18} color="#ff3080" speed={0.012} />
-          <Nebula position={[-7, -10, -32]} scale={15} color="#3080ff" speed={0.018} />
-          <Nebula position={[20, 7, -28]} scale={11} color="#30ffa0" speed={0.02} />
-
+        {/* Stage 2 — nebulas layer in next.
+            All five are the same cat's-eye texture, heavily disguised via
+            per-instance rotation + flipX + tint + scale. Real astrophotography
+            (even reused) beats any procedural gradient. */}
+        <SceneFadeIn delay={400} duration={1400}>
           <NebulaImage
             url="/nebulas/cats-eye.png"
             position={[-12, 4, -24]}
-            scale={22}
-            opacity={0.9}
-            tint="#b8d8ff"
+            scale={24}
+            opacity={0.92}
+            tint="#a8c8ff"
             spinSpeed={0.003}
             initialRotation={0.4}
           />
           <NebulaImage
             url="/nebulas/cats-eye.png"
             position={[16, -3, -30]}
-            scale={28}
-            opacity={0.6}
-            tint="#ffb8d8"
+            scale={30}
+            opacity={0.68}
+            tint="#ffb0d4"
             spinSpeed={-0.002}
             initialRotation={2.1}
             flipX
+          />
+          <NebulaImage
+            url="/nebulas/cats-eye.png"
+            position={[-18, -7, -22]}
+            scale={18}
+            opacity={0.55}
+            tint="#ffc080"
+            spinSpeed={0.0018}
+            initialRotation={5.0}
+          />
+          <NebulaImage
+            url="/nebulas/cats-eye.png"
+            position={[18, 9, -27]}
+            scale={16}
+            opacity={0.6}
+            tint="#8be0ff"
+            spinSpeed={-0.0025}
+            initialRotation={3.7}
+            flipX
+          />
+          <NebulaImage
+            url="/nebulas/cats-eye.png"
+            position={[-2, -4, -36]}
+            scale={34}
+            opacity={0.42}
+            tint="#c8a8ff"
+            spinSpeed={0.0012}
+            initialRotation={1.45}
           />
         </SceneFadeIn>
 
