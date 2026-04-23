@@ -343,6 +343,8 @@ function NebulaImage({
   opacity = 0.75,
   tint = "#ffffff",
   spinSpeed = 0.005,
+  initialRotation = 0,
+  flipX = false,
 }: {
   url: string;
   position: [number, number, number];
@@ -350,6 +352,11 @@ function NebulaImage({
   opacity?: number;
   tint?: string;
   spinSpeed?: number;
+  /** Static Z rotation applied once on mount — lets the same texture appear
+      different when reused. Combined with `flipX`, gives four "looks" per file. */
+  initialRotation?: number;
+  /** Mirror horizontally so the same nebula reads differently on reuse. */
+  flipX?: boolean;
 }) {
   // Manual TextureLoader — render nothing on 404 instead of throwing.
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
@@ -375,6 +382,9 @@ function NebulaImage({
   }, [url]);
 
   const ref = useRef<THREE.Mesh>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.rotation.z = initialRotation;
+  }, [initialRotation]);
   useFrame((_, delta) => {
     if (ref.current) ref.current.rotation.z += delta * spinSpeed;
   });
@@ -402,7 +412,7 @@ function NebulaImage({
   if (!texture) return null;
   const [w, h] = typeof scale === "number" ? [scale, scale] : scale;
   return (
-    <mesh ref={ref} position={position}>
+    <mesh ref={ref} position={position} scale={[flipX ? -1 : 1, 1, 1]}>
       <planeGeometry args={[w, h]} />
       {/* Custom shader: multiply RGB by a radial fade so the plane's square
           edges go to pure black. With additive blending, black = invisible,
@@ -642,12 +652,10 @@ function DistantPlanet({
 
 /** Tiny rocket drifting across the very-deep background. A little easter egg
     at the edge of view — cone body + fin triangles + a thruster flame. */
-/** The FABRIQUE ship — clickable spaceship that orbits around a point in
-    the scene instead of going back-and-forth. The outer group handles
-    position + lookAt so the ship's nose always faces the direction of
-    motion; the inner group pre-rotates the cylinder (originally along +Y)
-    so that its nose aligns with the outer group's -Z (which is where
-    lookAt points). Click it → fullscreen warp → /about cockpit. */
+/** The FABRIQUE ship — clickable spaceship orbiting on a flattened ellipse.
+    The outer group controls position + Y rotation; the inner group carries
+    the model with its nose pre-aligned to outer's forward axis. Click →
+    fullscreen warp → /about cockpit. */
 function FabriqueShip() {
   const outerRef = useRef<THREE.Group>(null);
   const shipRef = useRef<THREE.Group>(null);
@@ -655,15 +663,10 @@ function FabriqueShip() {
   const hoveredRef = useRef(false);
   const router = useRouter();
 
-  // Scratch vectors to avoid per-frame allocations.
-  const posVec = useMemo(() => new THREE.Vector3(), []);
-  const lookVec = useMemo(() => new THREE.Vector3(), []);
-
   useFrame(({ clock }) => {
     if (!outerRef.current) return;
     const t = clock.elapsedTime;
-    /** Orbit around a point behind the scene in a flattened ellipse (wider
-        along X than Z so the ship crosses most of the visible width). */
+    /** Orbit around a point behind the scene in a flattened ellipse. */
     const angle = t * 0.18;
     const cx = 0;
     const cz = -16;
@@ -672,16 +675,21 @@ function FabriqueShip() {
     const x = cx + Math.cos(angle) * radiusX;
     const z = cz + Math.sin(angle) * radiusZ;
     const y = Math.sin(t * 0.55) * 0.5 + 0.3;
-    posVec.set(x, y, z);
-    outerRef.current.position.copy(posVec);
+    outerRef.current.position.set(x, y, z);
 
-    // lookAt a point slightly further along the orbit → nose always points
-    // along the tangent, so the ship never travels backward.
-    const nextAngle = angle + 0.02;
-    const nextX = cx + Math.cos(nextAngle) * radiusX;
-    const nextZ = cz + Math.sin(nextAngle) * radiusZ;
-    lookVec.set(nextX, y, nextZ);
-    outerRef.current.lookAt(lookVec);
+    // Analytic tangent of the ellipse at this angle:
+    //   tx = dx/dθ = -sin(angle) * radiusX
+    //   tz = dz/dθ =  cos(angle) * radiusZ
+    // Inner shipRef (-π/2 X rotation) puts the nose along outer's -Z. So we
+    // need the Y rotation that aligns outer's local -Z with the tangent.
+    // For a Y-axis rotation θ, -Z rotates to (-sin θ, 0, -cos θ). Setting
+    // that equal to normalized tangent gives θ = atan2(-tx, -tz).
+    // Replaces the prior lookAt() which was inheriting an intermittent
+    // roll from up-vector resolution and visually flipping the ship on
+    // parts of the orbit.
+    const tx = -Math.sin(angle) * radiusX;
+    const tz = Math.cos(angle) * radiusZ;
+    outerRef.current.rotation.set(0, Math.atan2(-tx, -tz), 0);
 
     // Flame flicker (inside ship frame).
     if (flameRef.current) {
@@ -1621,6 +1629,12 @@ type DragState = {
       clicking a piece of debris that's currently at z ≠ 0 doesn't yank it
       across the scene toward z=0 as soon as you grab it. */
   depthZ: number;
+  /** Until the first useFrame after grab, we don't know where the cursor
+      sits on the drag plane (we only know where the raycast hit the mesh
+      surface — a different z). Flag tells DragSystem to initialize offset
+      on its next frame from cursor-on-plane minus body-center, so the
+      first impulse is zero and the rock doesn't teleport. */
+  needsOffsetInit: boolean;
 };
 
 function DragSystem({
@@ -1663,7 +1677,8 @@ function DragSystem({
     // DRAG (explicit only) — plane follows the body's snapshotted Z so we
     // don't yank it toward z=0 when grabbing something at a different depth.
     if (dragRef.current) {
-      const { body, offset, depthZ } = dragRef.current;
+      const drag = dragRef.current;
+      const { body, depthZ } = drag;
       // Position the drag plane at the body's grab depth.
       dragPlane.current.constant = -depthZ;
       const dragHit = raycaster.ray.intersectPlane(
@@ -1672,6 +1687,19 @@ function DragSystem({
       );
       if (!dragHit) return;
       const t = body.translation();
+      // First frame after grab: compute offset from cursor-on-plane minus
+      // body center — guarantees zero initial error so no teleport. Skip
+      // the impulse this frame; next frame uses the real offset.
+      if (drag.needsOffsetInit) {
+        drag.offset.set(
+          dragWorldCursor.current.x - t.x,
+          dragWorldCursor.current.y - t.y,
+          0,
+        );
+        drag.needsOffsetInit = false;
+        return;
+      }
+      const { offset } = drag;
       const targetX = dragWorldCursor.current.x - offset.x;
       const targetY = dragWorldCursor.current.y - offset.y;
       const targetZ = depthZ;
@@ -1752,12 +1780,13 @@ export function CoalScene({
     [],
   );
 
-  const handleGrab = (body: RapierRigidBody, eventPoint: THREE.Vector3) => {
+  const handleGrab = (body: RapierRigidBody, _eventPoint: THREE.Vector3) => {
     const t = body.translation();
     dragRef.current = {
       body,
-      offset: new THREE.Vector3(eventPoint.x - t.x, eventPoint.y - t.y, 0),
+      offset: new THREE.Vector3(0, 0, 0), // filled in on first useFrame
       depthZ: t.z,
+      needsOffsetInit: true,
     };
     // Kill velocity on grab — avoids the body carrying its pre-grab
     // momentum into the drag controller and flinging itself.
@@ -1825,19 +1854,23 @@ export function CoalScene({
           <Nebula position={[20, 7, -28]} scale={11} color="#30ffa0" speed={0.02} />
 
           <NebulaImage
-            url="/nebulas/carina.jpg"
+            url="/nebulas/cats-eye.png"
             position={[-12, 4, -24]}
-            scale={26}
-            opacity={0.85}
+            scale={22}
+            opacity={0.9}
+            tint="#b8d8ff"
             spinSpeed={0.003}
+            initialRotation={0.4}
           />
           <NebulaImage
-            url="/nebulas/carina.jpg"
+            url="/nebulas/cats-eye.png"
             position={[16, -3, -30]}
-            scale={22}
-            opacity={0.55}
-            tint="#d0b0ff"
+            scale={28}
+            opacity={0.6}
+            tint="#ffb8d8"
             spinSpeed={-0.002}
+            initialRotation={2.1}
+            flipX
           />
         </SceneFadeIn>
 
