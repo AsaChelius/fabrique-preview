@@ -186,7 +186,9 @@ function NebulaImage({
   /** Mirror horizontally so the same nebula reads differently on reuse. */
   flipX?: boolean;
 }) {
-  // Manual TextureLoader — render nothing on 404 instead of throwing.
+  // Manual TextureLoader — render the glow even on 404 so the scene always
+  // has nebula color, and log load outcome so we can tell from the console
+  // whether the file is the problem or the shader is.
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
   useEffect(() => {
     const loader = new THREE.TextureLoader();
@@ -197,10 +199,12 @@ function NebulaImage({
         if (cancelled) return;
         tex.colorSpace = THREE.SRGBColorSpace;
         setTexture(tex);
+        console.info("[nebula] loaded", url, tex.image?.width, "x", tex.image?.height);
       },
       undefined,
-      () => {
+      (err) => {
         if (cancelled) return;
+        console.warn("[nebula] FAILED to load", url, err);
         setTexture(null);
       },
     );
@@ -209,7 +213,7 @@ function NebulaImage({
     };
   }, [url]);
 
-  const ref = useRef<THREE.Mesh>(null);
+  const ref = useRef<THREE.Group>(null);
   useEffect(() => {
     if (ref.current) ref.current.rotation.z = initialRotation;
   }, [initialRotation]);
@@ -217,76 +221,49 @@ function NebulaImage({
     if (ref.current) ref.current.rotation.z += delta * spinSpeed;
   });
 
-  // Shader uniforms.
-  const uniforms = useMemo(
-    () => ({
-      uMap: { value: null as THREE.Texture | null },
-      uTint: { value: new THREE.Color(tint) },
-      uOpacity: { value: opacity },
-    }),
-    [tint, opacity],
-  );
-
-  useEffect(() => {
-    uniforms.uMap.value = texture;
-  }, [texture, uniforms]);
-  useEffect(() => {
-    uniforms.uTint.value.set(tint);
-    uniforms.uOpacity.value = opacity;
-  }, [tint, opacity, uniforms]);
-
-  if (!texture) return null;
   const [w, h] = typeof scale === "number" ? [scale, scale] : scale;
+  // Fallback glow scale — a hair smaller than the image plane so when both
+  // render they layer naturally instead of the sphere poking through edges.
+  const glowR = Math.max(w, h) * 0.42;
   return (
-    <mesh ref={ref} position={position} scale={[flipX ? -1 : 1, 1, 1]}>
-      <planeGeometry args={[w, h]} />
-      {/* Custom shader: multiply RGB by a gentle corner fade so the plane's
-          square edges go to black. Additive blending then turns those black
-          edges invisible. `side: DoubleSide` is required because flipX uses
-          scale.x = -1 which reverses winding and would cull a FrontSide
-          plane entirely (you'd see nothing). Intensity boost pushes the
-          additive contribution above the ambient starfield. */}
-      <shaderMaterial
-        uniforms={uniforms}
-        transparent
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-        side={THREE.DoubleSide}
-        toneMapped={false}
-        vertexShader={`
-          varying vec2 vUv;
-          void main() {
-            vUv = uv;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          }
-        `}
-        fragmentShader={`
-          uniform sampler2D uMap;
-          uniform vec3 uTint;
-          uniform float uOpacity;
-          varying vec2 vUv;
-
-          void main() {
-            vec4 tex = texture2D(uMap, vUv);
-            // Soft corner-only fade — only the outermost 10% of the plane
-            // fades to black. Anything closer to the center shows full
-            // texture so wisps and filaments aren't eaten.
-            vec2 fc = vUv - 0.5;
-            float dist = length(fc);
-            float fade = 1.0 - smoothstep(0.4, 0.5, dist);
-            // If the PNG has real alpha (transparent background), honor it
-            // too — multiplying by tex.a plus the corner fade makes both
-            // types of source assets disappear cleanly at the edges.
-            float alpha = tex.a;
-            // Brightness: the 2.4× multiplier compensates for additive-
-            // blend attenuation against a dark starfield — without it the
-            // nebula tints read as barely-there smoke.
-            vec3 col = tex.rgb * uTint * fade * alpha * uOpacity * 2.4;
-            gl_FragColor = vec4(col, 1.0);
-          }
-        `}
-      />
-    </mesh>
+    <group ref={ref} position={position}>
+      {/* Ambient glow sphere — renders regardless of texture state so the
+          scene has colored nebula presence even if the PNG 404's or the
+          GPU hates the shader. Additive meshBasicMaterial, no custom
+          pipeline, no shaderMaterial weirdness. */}
+      <mesh>
+        <sphereGeometry args={[glowR, 24, 24]} />
+        <meshBasicMaterial
+          color={tint}
+          transparent
+          opacity={opacity * 0.45}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+      {/* Textured billboard — only mounts once the PNG has loaded. Uses
+          Three's built-in unlit textured material (known-working path) with
+          the tint applied via `color` (multiplies with texture RGB) and
+          additive blend so the square plane edges go invisible where the
+          PNG's space-black background sits. DoubleSide so flipX (scale.x
+          = -1) doesn't get back-face culled. */}
+      {texture && (
+        <mesh scale={[flipX ? -1 : 1, 1, 1]}>
+          <planeGeometry args={[w, h]} />
+          <meshBasicMaterial
+            map={texture}
+            color={tint}
+            transparent
+            opacity={opacity}
+            depthWrite={false}
+            blending={THREE.AdditiveBlending}
+            side={THREE.DoubleSide}
+            toneMapped={false}
+          />
+        </mesh>
+      )}
+    </group>
   );
 }
 
