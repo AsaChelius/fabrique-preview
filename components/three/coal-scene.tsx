@@ -24,13 +24,6 @@ import {
   CuboidCollider,
   type RapierRigidBody,
 } from "@react-three/rapier";
-import {
-  EffectComposer,
-  Bloom,
-  Outline,
-  Selection,
-  Select,
-} from "@react-three/postprocessing";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
@@ -110,6 +103,7 @@ function SceneFadeIn({
   const ref = useRef<THREE.Group>(null);
   const startTime = useRef(performance.now());
   const matsRef = useRef<Array<THREE.Material & { userData: { _initialOpacity?: number } }>>([]);
+  const done = useRef(false);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -120,8 +114,14 @@ function SceneFadeIn({
       const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const m of list) {
         const mat = m as THREE.Material & { userData: { _initialOpacity?: number }; opacity?: number };
+        const currentOpacity = (mat as { opacity?: number }).opacity ?? 1;
+        // Skip materials that are intentionally invisible at mount — e.g.
+        // shooting-star trail spheres. They manage their own opacity at
+        // runtime and if we clamp them to 0 then ramp back to 0 we'd
+        // never let their animation set opacity.
+        if (currentOpacity <= 0) continue;
         if (!mat.userData) mat.userData = {};
-        mat.userData._initialOpacity = (mat as { opacity?: number }).opacity ?? 1;
+        mat.userData._initialOpacity = currentOpacity;
         mat.transparent = true;
         (mat as { opacity: number }).opacity = 0;
         mats.push(mat);
@@ -132,6 +132,7 @@ function SceneFadeIn({
   }, []);
 
   useFrame(() => {
+    if (done.current) return;
     const elapsed = performance.now() - startTime.current - delay;
     const t = Math.max(0, Math.min(1, elapsed / duration));
     const eased = t * t * (3 - 2 * t); // smoothstep
@@ -139,6 +140,7 @@ function SceneFadeIn({
       const initial = mat.userData._initialOpacity ?? 1;
       (mat as { opacity: number }).opacity = initial * eased;
     }
+    if (t >= 1) done.current = true; // stop stomping opacity forever
   });
 
   return <group ref={ref}>{children}</group>;
@@ -620,15 +622,445 @@ function FabriqueShip() {
   );
 }
 
+/** Point-cloud nebula — procedurally stitches together point positions in
+    the Cat's Eye silhouette (central core + ellipsoidal eye + concentric
+    halo rings + two tip filaments). Reads as a pixel-stippled nebula from
+    far away; great for layering behind the image billboards. */
+function PixelNebula({
+  position,
+  scale = 1,
+  seed = 0,
+  warm = "#ffb080",
+  cool = "#8fb8ff",
+  pointSize = 0.07,
+  opacity = 0.85,
+}: {
+  position: [number, number, number];
+  scale?: number;
+  seed?: number;
+  warm?: string;
+  cool?: string;
+  pointSize?: number;
+  opacity?: number;
+}) {
+  const ref = useRef<THREE.Points>(null);
+  const geometry = useMemo(() => {
+    const warmC = new THREE.Color(warm);
+    const coolC = new THREE.Color(cool);
+    const rand = (n: number) => {
+      const x = Math.sin(seed + n * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    };
+
+    // Collected (x,y,z,r,g,b) rows — we pre-allocate a generous buffer.
+    const rows: number[] = [];
+    const push = (x: number, y: number, z: number, c: THREE.Color) =>
+      rows.push(x, y, z, c.r, c.g, c.b);
+
+    // Bright central core — warm saturated dots
+    for (let i = 0; i < 60; i++) {
+      const r = rand(i) * 0.12;
+      const a = rand(i + 100) * Math.PI * 2;
+      const c = warmC.clone().lerp(new THREE.Color("#ffffff"), rand(i + 200) * 0.6);
+      push(Math.cos(a) * r, Math.sin(a) * r, (rand(i + 300) - 0.5) * 0.08, c);
+    }
+    // The "eye" — ellipsoidal inner shell (wider along X than Y)
+    for (let i = 0; i < 340; i++) {
+      const theta = rand(i + 400) * Math.PI * 2;
+      const rr = 0.28 + rand(i + 500) * 0.2;
+      const x = Math.cos(theta) * rr * 1.55;
+      const y = Math.sin(theta) * rr * 0.95;
+      const c = coolC.clone().lerp(warmC, Math.abs(Math.cos(theta)) * 0.45);
+      push(x, y, (rand(i + 600) - 0.5) * 0.08, c);
+    }
+    // Concentric halo rings — the signature Cat's-Eye detail
+    for (let ring = 0; ring < 7; ring++) {
+      const base = 0.7 + ring * 0.18;
+      const count = 80 + ring * 14;
+      for (let i = 0; i < count; i++) {
+        const theta = (i / count) * Math.PI * 2;
+        const wobble = (rand(i + ring * 1000) - 0.5) * 0.05;
+        const rr = base + wobble;
+        const x = Math.cos(theta) * rr * 1.55;
+        const y = Math.sin(theta) * rr * 0.95;
+        const atten = 1 - ring / 8;
+        const c = coolC.clone().multiplyScalar(0.4 + atten * 0.6);
+        push(x, y, (rand(i + ring * 1200) - 0.5) * 0.04, c);
+      }
+    }
+    // Tip filaments — two orange streaks at ±X extremes
+    for (let side = -1; side <= 1; side += 2) {
+      for (let i = 0; i < 90; i++) {
+        const t = rand(i + side * 2000);
+        const x = side * (1.6 + t * 1.4);
+        const y = (rand(i + side * 2100) - 0.5) * 0.15 + Math.sin(t * 4) * 0.08;
+        const z = (rand(i + side * 2200) - 0.5) * 0.08;
+        const c = warmC.clone().multiplyScalar(0.55 + rand(i + side * 2300) * 0.4);
+        push(x, y, z, c);
+      }
+    }
+    // Sparse background stars within the nebula area
+    for (let i = 0; i < 140; i++) {
+      const rr = rand(i + 3000) * 2.5;
+      const a = rand(i + 3100) * Math.PI * 2;
+      const c = new THREE.Color(1, 1, 0.9).multiplyScalar(
+        0.3 + rand(i + 3200) * 0.7,
+      );
+      push(Math.cos(a) * rr, Math.sin(a) * rr * 0.6, (rand(i + 3300) - 0.5) * 0.2, c);
+    }
+
+    const n = rows.length / 6;
+    const positions = new Float32Array(n * 3);
+    const colors = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      positions[i * 3] = rows[i * 6];
+      positions[i * 3 + 1] = rows[i * 6 + 1];
+      positions[i * 3 + 2] = rows[i * 6 + 2];
+      colors[i * 3] = rows[i * 6 + 3];
+      colors[i * 3 + 1] = rows[i * 6 + 4];
+      colors[i * 3 + 2] = rows[i * 6 + 5];
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    return geo;
+  }, [seed, warm, cool]);
+
+  useFrame((_, delta) => {
+    if (ref.current) ref.current.rotation.z += delta * 0.008;
+  });
+
+  return (
+    <points ref={ref} position={position} scale={scale}>
+      <primitive object={geometry} attach="geometry" />
+      <pointsMaterial
+        size={pointSize}
+        vertexColors
+        transparent
+        opacity={opacity}
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+        sizeAttenuation
+        toneMapped={false}
+      />
+    </points>
+  );
+}
+
+/** Slowly rotating satellite sitting very far back — box chassis + two solar
+    panel wings + a small antenna dish with a blinking red light. Barely
+    visible but it's there, catching the eye when you pan. */
+function DistantSatellite({
+  position,
+}: {
+  position: [number, number, number];
+}) {
+  const ref = useRef<THREE.Group>(null);
+  const blinker = useRef<THREE.Mesh>(null);
+  useFrame(({ clock }, delta) => {
+    if (ref.current) ref.current.rotation.y += delta * 0.08;
+    if (blinker.current) {
+      const on = Math.sin(clock.elapsedTime * 2.8) > 0.7 ? 1 : 0.05;
+      (blinker.current.material as THREE.MeshBasicMaterial).opacity = on;
+    }
+  });
+  return (
+    <group ref={ref} position={position}>
+      {/* Chassis */}
+      <mesh>
+        <boxGeometry args={[0.45, 0.35, 0.55]} />
+        <meshStandardMaterial color="#c6ccd4" metalness={0.75} roughness={0.3} />
+      </mesh>
+      {/* Gold foil wrap */}
+      <mesh position={[0, -0.18, 0]}>
+        <boxGeometry args={[0.48, 0.05, 0.58]} />
+        <meshStandardMaterial color="#d9a24a" metalness={0.9} roughness={0.2} emissive="#d9a24a" emissiveIntensity={0.3} />
+      </mesh>
+      {/* Solar panels L/R */}
+      {[-1, 1].map((s) => (
+        <group key={s} position={[s * 0.9, 0, 0]}>
+          <mesh>
+            <boxGeometry args={[1.3, 0.55, 0.03]} />
+            <meshStandardMaterial
+              color="#1f3a72"
+              metalness={0.55}
+              roughness={0.3}
+              emissive="#1a2550"
+              emissiveIntensity={0.5}
+            />
+          </mesh>
+          {/* Panel cell grid lines */}
+          {Array.from({ length: 4 }).map((_, i) => (
+            <mesh key={i} position={[-0.52 + i * 0.35, 0, 0.02]}>
+              <boxGeometry args={[0.01, 0.5, 0.005]} />
+              <meshBasicMaterial color="#0a1530" />
+            </mesh>
+          ))}
+          {/* Arm connecting panel to body */}
+          <mesh position={[-s * 0.6, 0, 0]}>
+            <cylinderGeometry args={[0.02, 0.02, 0.3, 6]} />
+            <meshStandardMaterial color="#9098a4" metalness={0.8} roughness={0.3} />
+          </mesh>
+        </group>
+      ))}
+      {/* Antenna dish */}
+      <mesh position={[0, 0.28, 0.15]} rotation={[-Math.PI / 5, 0, 0]}>
+        <cylinderGeometry args={[0.14, 0.2, 0.04, 18]} />
+        <meshStandardMaterial color="#eaecf2" metalness={0.6} roughness={0.35} />
+      </mesh>
+      <mesh position={[0, 0.38, 0.22]}>
+        <cylinderGeometry args={[0.015, 0.015, 0.2, 6]} />
+        <meshStandardMaterial color="#c0c4cc" metalness={0.7} roughness={0.25} />
+      </mesh>
+      {/* Blinking red beacon */}
+      <mesh ref={blinker} position={[0, 0.2, 0.3]}>
+        <sphereGeometry args={[0.035, 8, 8]} />
+        <meshBasicMaterial color="#ff3030" transparent opacity={1} toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
+/** UFO — classic flying saucer that cruises across the very-back once every
+    18–36 seconds. Disc base + transparent dome + ring of blinking rim lights
+    + a soft bottom underglow. Wobbles on its path like a bad sci-fi prop. */
+function UFO() {
+  const ref = useRef<THREE.Group>(null);
+  const state = useRef({
+    active: false,
+    nextAt: performance.now() + 8000 + Math.random() * 6000,
+    startX: 0,
+    endX: 0,
+    y: 0,
+    z: 0,
+    life: 0,
+    maxLife: 9,
+  });
+  useFrame(({ clock }, delta) => {
+    const s = state.current;
+    const now = performance.now();
+    if (!s.active && now > s.nextAt) {
+      const dir = Math.random() > 0.5 ? 1 : -1;
+      s.startX = -dir * 34;
+      s.endX = dir * 34;
+      s.y = 3 + Math.random() * 7;
+      s.z = -28 - Math.random() * 12;
+      s.life = 0;
+      s.active = true;
+    }
+    const g = ref.current;
+    if (g) g.visible = s.active;
+    if (s.active && g) {
+      s.life += delta;
+      const t01 = s.life / s.maxLife;
+      if (t01 >= 1) {
+        s.active = false;
+        s.nextAt = now + 18000 + Math.random() * 18000;
+        return;
+      }
+      const ease = t01 < 0.5 ? t01 * 2 : 1 - (t01 - 0.5) * 0.1; // accel in, cruise out
+      g.position.set(
+        THREE.MathUtils.lerp(s.startX, s.endX, ease),
+        s.y + Math.sin(clock.elapsedTime * 3) * 0.35,
+        s.z,
+      );
+      g.rotation.y += delta * 3.5;
+    }
+  });
+  return (
+    <group ref={ref} visible={false}>
+      {/* Lower saucer disc */}
+      <mesh>
+        <cylinderGeometry args={[0.55, 0.78, 0.12, 28]} />
+        <meshStandardMaterial
+          color="#7f8a9a"
+          metalness={0.85}
+          roughness={0.25}
+          emissive="#303846"
+          emissiveIntensity={0.3}
+        />
+      </mesh>
+      {/* Thin bright ring (glowing seam) */}
+      <mesh position={[0, -0.02, 0]}>
+        <cylinderGeometry args={[0.79, 0.79, 0.02, 28]} />
+        <meshBasicMaterial color="#80e0ff" toneMapped={false} />
+      </mesh>
+      {/* Dome */}
+      <mesh position={[0, 0.08, 0]}>
+        <sphereGeometry args={[0.35, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2]} />
+        <meshStandardMaterial
+          color="#60f0ff"
+          transparent
+          opacity={0.75}
+          metalness={0.3}
+          roughness={0.15}
+          emissive="#209fc8"
+          emissiveIntensity={1.1}
+          toneMapped={false}
+        />
+      </mesh>
+      {/* Rim lights */}
+      {Array.from({ length: 10 }).map((_, i) => {
+        const a = (i / 10) * Math.PI * 2;
+        return (
+          <mesh key={i} position={[Math.cos(a) * 0.66, -0.03, Math.sin(a) * 0.66]}>
+            <sphereGeometry args={[0.035, 6, 6]} />
+            <meshBasicMaterial
+              color={i % 2 === 0 ? "#ffe080" : "#80c8ff"}
+              toneMapped={false}
+            />
+          </mesh>
+        );
+      })}
+      {/* Underglow cone */}
+      <mesh position={[0, -0.4, 0]}>
+        <coneGeometry args={[0.5, 0.65, 20, 1, true]} />
+        <meshBasicMaterial
+          color="#80e0ff"
+          transparent
+          opacity={0.18}
+          blending={THREE.AdditiveBlending}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+      <pointLight position={[0, -0.3, 0]} color="#80e0ff" intensity={1.6} distance={4} />
+    </group>
+  );
+}
+
+/** Slow-rotating spiral galaxy in the VERY deep background. Build it once
+    with logarithmic spiral arms seeded by position; rotate lazily on its
+    own axis. A point-cloud of ~1500 stars across 3 arms. */
+function GalaxySpiral({
+  position,
+  scale = 1,
+  tint = "#b8c8ff",
+}: {
+  position: [number, number, number];
+  scale?: number;
+  tint?: string;
+}) {
+  const ref = useRef<THREE.Points>(null);
+  const geometry = useMemo(() => {
+    const N = 1500;
+    const pos = new Float32Array(N * 3);
+    const col = new Float32Array(N * 3);
+    const coreC = new THREE.Color("#fff0cc");
+    const armC = new THREE.Color(tint);
+    const arms = 3;
+    for (let i = 0; i < N; i++) {
+      const armIdx = i % arms;
+      const t = Math.random();
+      const r = t * 3;
+      // Logarithmic spiral
+      const theta = r * 1.6 + (armIdx / arms) * Math.PI * 2;
+      const jitter = (Math.random() - 0.5) * (0.25 + 0.1 * r);
+      const x = Math.cos(theta) * r + jitter;
+      const y = Math.sin(theta) * r + jitter;
+      const z = (Math.random() - 0.5) * 0.25;
+      pos[i * 3] = x;
+      pos[i * 3 + 1] = y;
+      pos[i * 3 + 2] = z;
+      // Color: core bright, arms tinted
+      const c = coreC.clone().lerp(armC, Math.min(1, r / 2.2));
+      c.multiplyScalar(0.45 + (1 - t) * 0.7);
+      col[i * 3] = c.r;
+      col[i * 3 + 1] = c.g;
+      col[i * 3 + 2] = c.b;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    return geo;
+  }, [tint]);
+  useFrame((_, delta) => {
+    if (ref.current) ref.current.rotation.z += delta * 0.02;
+  });
+  return (
+    <points ref={ref} position={position} scale={scale} rotation={[0.6, 0, 0]}>
+      <primitive object={geometry} attach="geometry" />
+      <pointsMaterial
+        size={0.055}
+        vertexColors
+        transparent
+        opacity={0.85}
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+        sizeAttenuation
+        toneMapped={false}
+      />
+    </points>
+  );
+}
+
 /** Wrapper for the distant background garnish. */
 function DistantBackground() {
   return (
     <>
+      {/* Distant planets — more of them now, varied sizes + ringed ones */}
       <DistantPlanet position={[-16, 5, -28]} scale={1.8} color="#3d5ac2" />
       <DistantPlanet position={[19, 4, -32]} scale={2.4} color="#c23d9e" ringed />
       <DistantPlanet position={[-8, -9, -35]} scale={1.2} color="#d6a040" />
       <DistantPlanet position={[14, -7, -38]} scale={2} color="#40c28a" />
       <DistantPlanet position={[6, 8, -42]} scale={0.9} color="#a240ff" />
+      <DistantPlanet position={[-22, -3, -44]} scale={1.6} color="#5098ff" ringed />
+      <DistantPlanet position={[24, 10, -46]} scale={1.1} color="#ff8060" />
+      <DistantPlanet position={[-4, 12, -50]} scale={0.7} color="#e0e0ff" />
+      <DistantPlanet position={[10, -12, -48]} scale={1.3} color="#70ff80" ringed />
+
+      {/* Pixel nebulas — procedural Cat's-Eye-alike structures, layered
+          BEHIND the PNG billboards. Each seeded differently so no two
+          look the same. */}
+      <PixelNebula
+        position={[-18, 8, -40]}
+        scale={1.6}
+        seed={7}
+        warm="#ff9068"
+        cool="#88b8ff"
+        pointSize={0.09}
+        opacity={0.8}
+      />
+      <PixelNebula
+        position={[20, -5, -45]}
+        scale={2.0}
+        seed={23}
+        warm="#ffb080"
+        cool="#b0a0ff"
+        pointSize={0.11}
+        opacity={0.7}
+      />
+      <PixelNebula
+        position={[0, 13, -50]}
+        scale={1.4}
+        seed={41}
+        warm="#80ffc0"
+        cool="#6090ff"
+        pointSize={0.08}
+        opacity={0.6}
+      />
+      <PixelNebula
+        position={[-12, -14, -46]}
+        scale={1.8}
+        seed={73}
+        warm="#ff80a0"
+        cool="#80d0ff"
+        pointSize={0.1}
+        opacity={0.75}
+      />
+
+      {/* Very-far spiral galaxy — face-tilted so it reads as a disc */}
+      <GalaxySpiral position={[-28, -2, -58]} scale={1.3} tint="#a8c8ff" />
+      <GalaxySpiral position={[26, 14, -62]} scale={0.9} tint="#ffc0d8" />
+
+      {/* Satellite — drift-rotating, way back */}
+      <DistantSatellite position={[-25, 9, -52]} />
+      <DistantSatellite position={[22, -10, -55]} />
+
+      {/* UFO — flies across rarely */}
+      <UFO />
+
       <FabriqueShip />
     </>
   );
@@ -1379,26 +1811,24 @@ function Planet({
       type="kinematicPosition"
       colliders="hull"
     >
-      <Select enabled>
-        <group
-          ref={group}
-          onPointerDown={(e: ThreeEvent<PointerEvent>) => {
-            e.stopPropagation();
-            if (isActive) return;
-            onSelect(project);
-          }}
-          onPointerOver={(e: ThreeEvent<PointerEvent>) => {
-            e.stopPropagation();
-            document.body.style.cursor = "pointer";
-          }}
-          onPointerOut={() => {
-            document.body.style.cursor = "";
-          }}
-        >
-          <PlanetShapeMesh shape={shape} glow={glow} shellRef={shellRef} coreRef={coreRef} />
-          <pointLight ref={lightRef} color={glow} intensity={1} distance={4} decay={2} />
-        </group>
-      </Select>
+      <group
+        ref={group}
+        onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+          e.stopPropagation();
+          if (isActive) return;
+          onSelect(project);
+        }}
+        onPointerOver={(e: ThreeEvent<PointerEvent>) => {
+          e.stopPropagation();
+          document.body.style.cursor = "pointer";
+        }}
+        onPointerOut={() => {
+          document.body.style.cursor = "";
+        }}
+      >
+        <PlanetShapeMesh shape={shape} glow={glow} shellRef={shellRef} coreRef={coreRef} />
+        <pointLight ref={lightRef} color={glow} intensity={1} distance={4} decay={2} />
+      </group>
     </RigidBody>
   );
 }
@@ -1689,62 +2119,49 @@ export function CoalScene({
         <SceneFadeIn delay={700} duration={1100}>
           <DustField count={280} />
           <DistantBackground />
-          <ShootingStar index={0} />
-          <ShootingStar index={1} />
-          <ShootingStar index={2} />
         </SceneFadeIn>
 
-        <Selection>
-          <Physics gravity={GRAVITY_ZERO}>
-            <Arena />
-            {/* Stage 4 — foreground interactive: planets appear, then debris. */}
-            <SceneFadeIn delay={1000} duration={1100}>
-              {projects.map((p, i) => (
-                <Planet
-                  key={p.id}
-                  project={p}
-                  index={i}
-                  total={projects.length}
-                  isActive={activeId === p.id}
-                  onSelect={onSelect}
-                  onGrab={handleGrab}
-                />
-              ))}
-            </SceneFadeIn>
-            <SceneFadeIn delay={1350} duration={1000}>
-              {debrisIndices.map((i) => (
-                <Debris
-                  key={`debris-${i}`}
-                  index={i}
-                  bodyRefs={debrisBodies}
-                  onGrab={handleGrab}
-                />
-              ))}
-            </SceneFadeIn>
-            <DragSystem
-              dragRef={dragRef}
-              bodies={debrisBodies}
-              cursorVelRef={cursorVelRef}
-            />
-          </Physics>
+        {/* Shooting stars live OUTSIDE SceneFadeIn — their meshes start at
+            opacity 0 on purpose (invisible until active) so the fade-in
+            wrapper would mistake that as "final" and never let them shine. */}
+        <ShootingStar index={0} />
+        <ShootingStar index={1} />
+        <ShootingStar index={2} />
+        <ShootingStar index={3} />
+        <ShootingStar index={4} />
 
-          <EffectComposer multisampling={0}>
-            <Outline
-              visibleEdgeColor={0xffffff}
-              hiddenEdgeColor={0x88aaff}
-              edgeStrength={8}
-              pulseSpeed={0.45}
-              blur={false}
-              xRay={false}
-            />
-            <Bloom
-              intensity={0.75}
-              luminanceThreshold={0.4}
-              luminanceSmoothing={0.22}
-              mipmapBlur
-            />
-          </EffectComposer>
-        </Selection>
+        <Physics gravity={GRAVITY_ZERO}>
+          <Arena />
+          {/* Stage 4 — foreground interactive: planets appear, then debris. */}
+          <SceneFadeIn delay={1000} duration={1100}>
+            {projects.map((p, i) => (
+              <Planet
+                key={p.id}
+                project={p}
+                index={i}
+                total={projects.length}
+                isActive={activeId === p.id}
+                onSelect={onSelect}
+                onGrab={handleGrab}
+              />
+            ))}
+          </SceneFadeIn>
+          <SceneFadeIn delay={1350} duration={1000}>
+            {debrisIndices.map((i) => (
+              <Debris
+                key={`debris-${i}`}
+                index={i}
+                bodyRefs={debrisBodies}
+                onGrab={handleGrab}
+              />
+            ))}
+          </SceneFadeIn>
+          <DragSystem
+            dragRef={dragRef}
+            bodies={debrisBodies}
+            cursorVelRef={cursorVelRef}
+          />
+        </Physics>
 
         {/* Grab-air to rotate the scene. `.enabled` gets flipped directly on
             the ref during grab/release so we don't cascade React re-renders. */}
