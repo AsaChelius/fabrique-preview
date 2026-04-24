@@ -24,7 +24,7 @@ import {
   CuboidCollider,
   type RapierRigidBody,
 } from "@react-three/rapier";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef } from "react";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import { playSound } from "@/lib/sound";
@@ -149,100 +149,6 @@ function SceneFadeIn({
 // -----------------------------------------------------------------------------
 // Background: nebulas + dust + shooting stars
 // -----------------------------------------------------------------------------
-
-/**
- * Image-textured nebula billboard — the only realistic way to hit JWST-
- * quality visuals is to use actual JWST / Hubble / ESA imagery. They're all
- * public-domain and hosted at stsci-opo.org, esawebb.org, webb.nasa.gov.
- *
- * Usage: drop a .jpg/.png into `/public/nebulas/` and pass its path (e.g.
- * `/nebulas/carina.jpg`). Falls back gracefully — if the file is missing
- * the Suspense stays pending and nothing renders for that nebula.
- *
- * Recommended sources (right-click → save):
- *   • https://esawebb.org/images/weic2205b/      (Carina — orange/rust)
- *   • https://esawebb.org/images/weic2208c/      (Tarantula — blue/teal)
- *   • https://esawebb.org/images/weic2316a/      (Ring Nebula)
- *   • https://esawebb.org/images/weic2310a/      (Pillars of Creation)
- *   • https://esawebb.org/images/weic2417a/      (NGC 604)
- */
-function NebulaImage({
-  url,
-  position,
-  scale,
-  opacity = 0.75,
-  tint = "#ffffff",
-  spinSpeed = 0.005,
-  initialRotation = 0,
-  flipX = false,
-}: {
-  url: string;
-  position: [number, number, number];
-  scale: number | [number, number];
-  opacity?: number;
-  tint?: string;
-  spinSpeed?: number;
-  /** Static Z rotation applied once on mount — lets the same texture appear
-      different when reused. Combined with `flipX`, gives four "looks" per file. */
-  initialRotation?: number;
-  /** Mirror horizontally so the same nebula reads differently on reuse. */
-  flipX?: boolean;
-}) {
-  // Manual TextureLoader — render nothing on 404 instead of throwing.
-  const [texture, setTexture] = useState<THREE.Texture | null>(null);
-  useEffect(() => {
-    const loader = new THREE.TextureLoader();
-    let cancelled = false;
-    loader.load(
-      url,
-      (tex) => {
-        if (cancelled) return;
-        tex.colorSpace = THREE.SRGBColorSpace;
-        setTexture(tex);
-      },
-      undefined,
-      () => {
-        if (cancelled) return;
-        setTexture(null);
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
-
-  const ref = useRef<THREE.Mesh>(null);
-  useEffect(() => {
-    if (ref.current) ref.current.rotation.z = initialRotation;
-  }, [initialRotation]);
-  useFrame((_, delta) => {
-    if (ref.current) ref.current.rotation.z += delta * spinSpeed;
-  });
-
-  if (!texture) return null;
-  const [w, h] = typeof scale === "number" ? [scale, scale] : scale;
-  return (
-    <mesh ref={ref} position={position} scale={[flipX ? -1 : 1, 1, 1]}>
-      {/* The source PNG has a real alpha channel (space = transparent,
-          nebula = opaque) so square edges disappear on their own. Additive
-          blend keeps the nebula luminous — stars behind it stay visible
-          and the color layers feel like gas rather than paint. `color`
-          multiplies with texture RGB to tint each instance. DoubleSide so
-          flipX (scale.x = -1) doesn't get back-face culled. */}
-      <planeGeometry args={[w, h]} />
-      <meshBasicMaterial
-        map={texture}
-        color={tint}
-        transparent
-        opacity={opacity}
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-        side={THREE.DoubleSide}
-        toneMapped={false}
-      />
-    </mesh>
-  );
-}
 
 function DustField({ count = 300 }: { count?: number }) {
   const ref = useRef<THREE.Points>(null);
@@ -1012,11 +918,539 @@ function GalaxySpiral({
   );
 }
 
+// -----------------------------------------------------------------------------
+// Procedural nebula library — each function builds a point-cloud geometry
+// modelled on a real nebula morphology. Reused in <MajorNebulas /> below.
+// -----------------------------------------------------------------------------
+
+/** Tiny seeded PRNG used across nebula generators. Stateful via closure. */
+function seededRand(seed: number) {
+  let s = seed;
+  return () => {
+    s = (s * 9301 + 49297) % 233280;
+    return s / 233280;
+  };
+}
+
+/** Utility: push (pos,color) into parallel arrays, return a BufferGeometry. */
+function buildPointsGeometry(rows: number[]): THREE.BufferGeometry {
+  const n = rows.length / 6;
+  const pos = new Float32Array(n * 3);
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    pos[i * 3] = rows[i * 6];
+    pos[i * 3 + 1] = rows[i * 6 + 1];
+    pos[i * 3 + 2] = rows[i * 6 + 2];
+    col[i * 3] = rows[i * 6 + 3];
+    col[i * 3 + 1] = rows[i * 6 + 4];
+    col[i * 3 + 2] = rows[i * 6 + 5];
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  return geo;
+}
+
+/** EmissionPillar — dense vertical dust columns with embedded stars, à la
+    Hubble's Pillars of Creation (M16 Eagle Nebula). Three warm-brown
+    columns of varying height with hot young stars scattered inside + at
+    the peaks, against a hazy green-teal emission background. */
+function EmissionPillar({
+  position,
+  scale = 1,
+  seed = 17,
+  spin = 0.001,
+}: {
+  position: [number, number, number];
+  scale?: number;
+  seed?: number;
+  spin?: number;
+}) {
+  const ref = useRef<THREE.Group>(null);
+  const geometry = useMemo(() => {
+    const r = seededRand(seed);
+    const rows: number[] = [];
+    const push = (x: number, y: number, z: number, c: THREE.Color) =>
+      rows.push(x, y, z, c.r, c.g, c.b);
+    const dustColor = new THREE.Color("#b8602c");
+    const dustColorLight = new THREE.Color("#e09060");
+    const starC = new THREE.Color("#ffffe0");
+    const bgC = new THREE.Color("#3d5a70");
+    // Three pillars at fixed offsets along X, varying height + taper
+    const pillars = [
+      { x: -1.6, h: 4.2, w: 0.55 },
+      { x: 0, h: 5.5, w: 0.7 },
+      { x: 1.5, h: 3.6, w: 0.5 },
+    ];
+    for (const p of pillars) {
+      const count = Math.floor(p.h * 140);
+      for (let i = 0; i < count; i++) {
+        // Vertical position along pillar, biased to be denser at the base
+        const t = r() ** 1.15;
+        const yLocal = -p.h / 2 + t * p.h;
+        // Radius tapers to thinner at top + noisy edge
+        const taper = 1 - (1 - t) * 0.15 - t * 0.5;
+        const radius = p.w * taper * (0.5 + r() * 0.8);
+        const theta = r() * Math.PI * 2;
+        const x = p.x + Math.cos(theta) * radius;
+        const z = Math.sin(theta) * radius;
+        const cMix = dustColor.clone().lerp(dustColorLight, r() * 0.8);
+        cMix.multiplyScalar(0.6 + r() * 0.6);
+        push(x, yLocal, z, cMix);
+      }
+    }
+    // Hot young stars inside the pillars + at the tips
+    for (let i = 0; i < 70; i++) {
+      const p = pillars[Math.floor(r() * pillars.length)];
+      const t = r();
+      const x = p.x + (r() - 0.5) * p.w * 0.5;
+      const y = -p.h / 2 + t * p.h;
+      const z = (r() - 0.5) * p.w * 0.3;
+      const c = starC.clone().multiplyScalar(1.1 + r() * 0.6);
+      push(x, y, z, c);
+    }
+    // Background emission haze — teal/green O-III
+    for (let i = 0; i < 400; i++) {
+      const x = (r() - 0.5) * 8;
+      const y = (r() - 0.5) * 8;
+      const z = -1 - r() * 1.5;
+      const c = bgC.clone().multiplyScalar(0.5 + r() * 0.5);
+      push(x, y, z, c);
+    }
+    return buildPointsGeometry(rows);
+  }, [seed]);
+  useFrame((_, delta) => {
+    if (ref.current) ref.current.rotation.z += delta * spin;
+  });
+  return (
+    <points ref={ref} position={position} scale={scale}>
+      <primitive object={geometry} attach="geometry" />
+      <pointsMaterial
+        size={3.2}
+        vertexColors
+        transparent
+        opacity={1}
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+        sizeAttenuation={false}
+        toneMapped={false}
+      />
+    </points>
+  );
+}
+
+/** SupernovaRemnant — expanding spherical shell with filamentary structure,
+    modelled on the Crab Nebula / Cassiopeia A. Blue synchrotron core +
+    red-orange filaments on the shell + hot central pulsar. */
+function SupernovaRemnant({
+  position,
+  scale = 1,
+  seed = 29,
+  spin = 0.004,
+}: {
+  position: [number, number, number];
+  scale?: number;
+  seed?: number;
+  spin?: number;
+}) {
+  const ref = useRef<THREE.Group>(null);
+  const geometry = useMemo(() => {
+    const r = seededRand(seed);
+    const rows: number[] = [];
+    const push = (x: number, y: number, z: number, c: THREE.Color) =>
+      rows.push(x, y, z, c.r, c.g, c.b);
+    const blueC = new THREE.Color("#80c8ff");
+    const redC = new THREE.Color("#ff6040");
+    const whiteC = new THREE.Color("#ffffff");
+    // Filamentary shell — pick random great-circle arcs and trace them
+    // in points. Simulates the stringy web of a real SNR.
+    for (let f = 0; f < 36; f++) {
+      const axis = new THREE.Vector3(r() - 0.5, r() - 0.5, r() - 0.5).normalize();
+      const ortho = new THREE.Vector3()
+        .crossVectors(axis, new THREE.Vector3(1, 0, 0))
+        .normalize();
+      if (ortho.lengthSq() < 0.01) ortho.set(0, 1, 0);
+      const ortho2 = new THREE.Vector3().crossVectors(axis, ortho).normalize();
+      const arcLen = 0.6 + r() * 1.3;
+      const arcSteps = 45;
+      const phase = r() * Math.PI * 2;
+      const R = 1.5 + r() * 0.4;
+      const colA = redC.clone().lerp(blueC, r() * 0.35);
+      for (let i = 0; i < arcSteps; i++) {
+        const theta = phase + (i / arcSteps) * arcLen;
+        const x = (Math.cos(theta) * ortho.x + Math.sin(theta) * ortho2.x) * R;
+        const y = (Math.cos(theta) * ortho.y + Math.sin(theta) * ortho2.y) * R;
+        const z = (Math.cos(theta) * ortho.z + Math.sin(theta) * ortho2.z) * R;
+        const jitter = 0.08;
+        const c = colA.clone().multiplyScalar(0.75 + r() * 0.5);
+        push(
+          x + (r() - 0.5) * jitter,
+          y + (r() - 0.5) * jitter,
+          z + (r() - 0.5) * jitter,
+          c,
+        );
+      }
+    }
+    // Inner blue synchrotron glow — dense ball of blue points
+    for (let i = 0; i < 600; i++) {
+      const u = r() * 2 - 1;
+      const phi = r() * Math.PI * 2;
+      const rad = 0.1 + r() * 0.9;
+      const sr = Math.sqrt(1 - u * u);
+      const c = blueC.clone().multiplyScalar(0.6 + r() * 0.6);
+      push(
+        Math.cos(phi) * sr * rad,
+        Math.sin(phi) * sr * rad,
+        u * rad,
+        c,
+      );
+    }
+    // Central pulsar point
+    for (let i = 0; i < 12; i++) {
+      const c = whiteC.clone().multiplyScalar(1.5 + r() * 0.5);
+      push((r() - 0.5) * 0.08, (r() - 0.5) * 0.08, (r() - 0.5) * 0.08, c);
+    }
+    return buildPointsGeometry(rows);
+  }, [seed]);
+  useFrame((_, delta) => {
+    if (ref.current) {
+      ref.current.rotation.x += delta * spin;
+      ref.current.rotation.y += delta * spin * 0.7;
+    }
+  });
+  return (
+    <points ref={ref} position={position} scale={scale}>
+      <primitive object={geometry} attach="geometry" />
+      <pointsMaterial
+        size={2.6}
+        vertexColors
+        transparent
+        opacity={1}
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+        sizeAttenuation={false}
+        toneMapped={false}
+      />
+    </points>
+  );
+}
+
+/** RingNebula — toroidal gas shell with bright central core, modelled on
+    M57 Ring Nebula / Helix Nebula. Viewed slightly off-axis so it reads
+    as an ellipse. */
+function RingNebula({
+  position,
+  scale = 1,
+  seed = 51,
+  tiltX = 0.8,
+  spin = 0.012,
+  inner = "#ff70c8",
+  outer = "#60d8ff",
+}: {
+  position: [number, number, number];
+  scale?: number;
+  seed?: number;
+  tiltX?: number;
+  spin?: number;
+  inner?: string;
+  outer?: string;
+}) {
+  const ref = useRef<THREE.Group>(null);
+  const geometry = useMemo(() => {
+    const r = seededRand(seed);
+    const rows: number[] = [];
+    const push = (x: number, y: number, z: number, c: THREE.Color) =>
+      rows.push(x, y, z, c.r, c.g, c.b);
+    const innerC = new THREE.Color(inner);
+    const outerC = new THREE.Color(outer);
+    // Torus surface
+    const R = 1;
+    const T = 0.35;
+    for (let i = 0; i < 2200; i++) {
+      const u = r() * Math.PI * 2;
+      const v = r() * Math.PI * 2;
+      const jitter = 1 + (r() - 0.5) * 0.25;
+      const cr = T * jitter;
+      const x = (R + cr * Math.cos(v)) * Math.cos(u);
+      const y = (R + cr * Math.cos(v)) * Math.sin(u);
+      const z = cr * Math.sin(v) * 0.6;
+      // Radial color blend — inner points pinker, outer points bluer
+      const radial = cr / T; // 0 = center of tube, 1 = outside
+      const c = innerC.clone().lerp(outerC, (Math.cos(v) + 1) * 0.5);
+      c.multiplyScalar(0.8 + r() * 0.5);
+      // Fade outer strand
+      const fade = 1 - Math.max(0, radial - 0.8) * 2;
+      c.multiplyScalar(fade);
+      push(x, y, z, c);
+    }
+    // Central white-dwarf glow
+    for (let i = 0; i < 80; i++) {
+      const c = new THREE.Color("#e0f8ff").multiplyScalar(1.2 + r() * 0.4);
+      push(
+        (r() - 0.5) * 0.25,
+        (r() - 0.5) * 0.25,
+        (r() - 0.5) * 0.1,
+        c,
+      );
+    }
+    // Sparse outer halo — wisps extending past the ring
+    for (let i = 0; i < 350; i++) {
+      const u = r() * Math.PI * 2;
+      const hr = R + T + r() * 0.5;
+      const c = outerC.clone().multiplyScalar(0.3 + r() * 0.5);
+      push(
+        Math.cos(u) * hr,
+        Math.sin(u) * hr,
+        (r() - 0.5) * 0.15,
+        c,
+      );
+    }
+    return buildPointsGeometry(rows);
+  }, [seed, inner, outer]);
+  useFrame((_, delta) => {
+    if (ref.current) ref.current.rotation.z += delta * spin;
+  });
+  return (
+    <points ref={ref} position={position} scale={scale} rotation={[tiltX, 0, 0]}>
+      <primitive object={geometry} attach="geometry" />
+      <pointsMaterial
+        size={3}
+        vertexColors
+        transparent
+        opacity={1}
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+        sizeAttenuation={false}
+        toneMapped={false}
+      />
+    </points>
+  );
+}
+
+/** BipolarNebula — two teardrop-shaped lobes extending from a pinch point,
+    modelled on NGC 6302 Butterfly Nebula / Ant Nebula. Hot white core at
+    the center, blue-to-pink gradient lobes, flared tips. */
+function BipolarNebula({
+  position,
+  scale = 1,
+  seed = 83,
+  spin = 0.006,
+}: {
+  position: [number, number, number];
+  scale?: number;
+  seed?: number;
+  spin?: number;
+}) {
+  const ref = useRef<THREE.Group>(null);
+  const geometry = useMemo(() => {
+    const r = seededRand(seed);
+    const rows: number[] = [];
+    const push = (x: number, y: number, z: number, c: THREE.Color) =>
+      rows.push(x, y, z, c.r, c.g, c.b);
+    const hotC = new THREE.Color("#ffeed8");
+    const pinkC = new THREE.Color("#ff80c0");
+    const blueC = new THREE.Color("#6090ff");
+    // Two cone/lobe clouds along ±X axis
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 1100; i++) {
+        const t = r(); // 0 = at center, 1 = tip
+        // Length along axis biased toward tip cluster
+        const along = side * t * 2.2;
+        // Cone radius grows to middle then tapers toward tip
+        const bulge = Math.sin(t * Math.PI) ** 0.8;
+        const radius = 0.05 + bulge * 0.9;
+        const theta = r() * Math.PI * 2;
+        const crossY = Math.cos(theta) * radius;
+        const crossZ = Math.sin(theta) * radius * 0.5; // flatter Z
+        const c = blueC.clone().lerp(pinkC, t);
+        c.multiplyScalar(0.6 + (1 - t) * 0.5 + r() * 0.3);
+        push(along, crossY, crossZ, c);
+      }
+    }
+    // Bright hot pinch at origin
+    for (let i = 0; i < 80; i++) {
+      const c = hotC.clone().multiplyScalar(1.4 + r() * 0.5);
+      push(
+        (r() - 0.5) * 0.25,
+        (r() - 0.5) * 0.15,
+        (r() - 0.5) * 0.1,
+        c,
+      );
+    }
+    return buildPointsGeometry(rows);
+  }, [seed]);
+  useFrame((_, delta) => {
+    if (ref.current) ref.current.rotation.z += delta * spin;
+  });
+  return (
+    <points ref={ref} position={position} scale={scale}>
+      <primitive object={geometry} attach="geometry" />
+      <pointsMaterial
+        size={2.8}
+        vertexColors
+        transparent
+        opacity={1}
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+        sizeAttenuation={false}
+        toneMapped={false}
+      />
+    </points>
+  );
+}
+
+/** ReflectionCloud — big diffuse multi-colored cloud, no central structure,
+    modelled on Rho Ophiuchi cloud complex / Carina regions. Multiple color
+    clumps layered together. */
+function ReflectionCloud({
+  position,
+  scale = 1,
+  seed = 101,
+  tints = ["#6080ff", "#ff80a0", "#ffa060", "#a0ff80"],
+}: {
+  position: [number, number, number];
+  scale?: number;
+  seed?: number;
+  tints?: string[];
+}) {
+  const ref = useRef<THREE.Group>(null);
+  const geometry = useMemo(() => {
+    const r = seededRand(seed);
+    const rows: number[] = [];
+    const push = (x: number, y: number, z: number, c: THREE.Color) =>
+      rows.push(x, y, z, c.r, c.g, c.b);
+    const colors = tints.map((t) => new THREE.Color(t));
+    // 5 color clumps, each a gaussian-ish blob centered somewhere
+    for (let k = 0; k < 7; k++) {
+      const cx = (r() - 0.5) * 4;
+      const cy = (r() - 0.5) * 3;
+      const cz = (r() - 0.5) * 1.5;
+      const baseC = colors[k % colors.length];
+      const N = 400 + Math.floor(r() * 200);
+      const spread = 0.8 + r() * 1.0;
+      for (let i = 0; i < N; i++) {
+        // Box-Muller-ish distribution for a rounded clump
+        const u1 = r();
+        const u2 = r();
+        const g1 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+        const g2 = Math.sqrt(-2 * Math.log(u1)) * Math.sin(2 * Math.PI * u2);
+        const g3 = (r() - 0.5) * 2;
+        const c = baseC.clone().multiplyScalar(0.6 + r() * 0.7);
+        push(cx + g1 * spread, cy + g2 * spread, cz + g3 * spread * 0.4, c);
+      }
+    }
+    return buildPointsGeometry(rows);
+  }, [seed, tints]);
+  useFrame((_, delta) => {
+    if (ref.current) ref.current.rotation.z += delta * 0.0015;
+  });
+  return (
+    <points ref={ref} position={position} scale={scale}>
+      <primitive object={geometry} attach="geometry" />
+      <pointsMaterial
+        size={3}
+        vertexColors
+        transparent
+        opacity={0.9}
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+        sizeAttenuation={false}
+        toneMapped={false}
+      />
+    </points>
+  );
+}
+
+/** MajorNebulas — the screenwide stage-2 layer. Each instance is placed at
+    a depth that puts it well behind the planets and at a scale large enough
+    to fill a meaningful fraction of the frustum. */
+function MajorNebulas() {
+  return (
+    <>
+      {/* Pillars of Creation — huge, center-left, warm+teal */}
+      <EmissionPillar
+        position={[-14, 2, -42]}
+        scale={4.5}
+        seed={17}
+        spin={0.0008}
+      />
+      {/* Supernova remnant — right of center, bright shell */}
+      <SupernovaRemnant
+        position={[16, 6, -48]}
+        scale={6}
+        seed={29}
+        spin={0.003}
+      />
+      {/* Ring nebula — top-right, pink/cyan */}
+      <RingNebula
+        position={[20, 10, -52]}
+        scale={5}
+        seed={51}
+        tiltX={0.9}
+        spin={0.01}
+        inner="#ff70c8"
+        outer="#60d8ff"
+      />
+      {/* Second ring nebula — very far back, centered, huge, green/violet */}
+      <RingNebula
+        position={[-4, -2, -66]}
+        scale={9}
+        seed={67}
+        tiltX={0.5}
+        spin={-0.008}
+        inner="#80ffb0"
+        outer="#b080ff"
+      />
+      {/* Butterfly / bipolar — mid-distance, lower-left */}
+      <BipolarNebula
+        position={[-18, -6, -40]}
+        scale={4.5}
+        seed={83}
+        spin={0.004}
+      />
+      {/* Reflection cloud — screen-filling backdrop, multi-color */}
+      <ReflectionCloud
+        position={[0, 0, -58]}
+        scale={8}
+        seed={101}
+        tints={["#6080ff", "#ff80a0", "#ffc060", "#80ffe0"]}
+      />
+      {/* Second reflection cloud — offset, cooler palette */}
+      <ReflectionCloud
+        position={[-12, 10, -56]}
+        scale={5}
+        seed={137}
+        tints={["#4060c0", "#7040a0", "#80a0ff"]}
+      />
+      {/* Cat's-Eye pixel nebula (reusing the existing generator) — far left,
+          adds detail variety alongside the new morphologies. */}
+      <PixelNebula
+        position={[24, -12, -46]}
+        scale={2.6}
+        seed={7}
+        warm="#ff9068"
+        cool="#88b8ff"
+        pointSize={3}
+        opacity={1}
+      />
+      <PixelNebula
+        position={[-26, 4, -54]}
+        scale={3.2}
+        seed={23}
+        warm="#ffb080"
+        cool="#b0a0ff"
+        pointSize={2.8}
+        opacity={0.95}
+      />
+    </>
+  );
+}
+
 /** Wrapper for the distant background garnish. */
 function DistantBackground() {
   return (
     <>
-      {/* Distant planets — more of them now, varied sizes + ringed ones */}
+      {/* Distant planets — varied sizes + ringed variants */}
       <DistantPlanet position={[-16, 5, -28]} scale={1.8} color="#3d5ac2" />
       <DistantPlanet position={[19, 4, -32]} scale={2.4} color="#c23d9e" ringed />
       <DistantPlanet position={[-8, -9, -35]} scale={1.2} color="#d6a040" />
@@ -1027,49 +1461,12 @@ function DistantBackground() {
       <DistantPlanet position={[-4, 12, -50]} scale={0.7} color="#e0e0ff" />
       <DistantPlanet position={[10, -12, -48]} scale={1.3} color="#70ff80" ringed />
 
-      {/* Pixel nebulas — procedural Cat's-Eye-alike structures, layered
-          BEHIND the PNG billboards. Each seeded differently so no two
-          look the same. */}
-      <PixelNebula
-        position={[-18, 8, -40]}
-        scale={1.6}
-        seed={7}
-        warm="#ff9068"
-        cool="#88b8ff"
-        pointSize={3.2}
-        opacity={1}
-      />
-      <PixelNebula
-        position={[20, -5, -45]}
-        scale={2.0}
-        seed={23}
-        warm="#ffb080"
-        cool="#b0a0ff"
-        pointSize={3.6}
-        opacity={0.95}
-      />
-      <PixelNebula
-        position={[0, 13, -50]}
-        scale={1.4}
-        seed={41}
-        warm="#80ffc0"
-        cool="#6090ff"
-        pointSize={2.8}
-        opacity={0.9}
-      />
-      <PixelNebula
-        position={[-12, -14, -46]}
-        scale={1.8}
-        seed={73}
-        warm="#ff80a0"
-        cool="#80d0ff"
-        pointSize={3.2}
-        opacity={0.95}
-      />
-
-      {/* Very-far spiral galaxy — face-tilted so it reads as a disc */}
+      {/* Spiral galaxies — more of them now, varied sizes/tints/tilts */}
       <GalaxySpiral position={[-28, -2, -58]} scale={1.3} tint="#a8c8ff" />
       <GalaxySpiral position={[26, 14, -62]} scale={0.9} tint="#ffc0d8" />
+      <GalaxySpiral position={[8, -16, -64]} scale={1.1} tint="#c0a8ff" />
+      <GalaxySpiral position={[-18, 16, -68]} scale={0.75} tint="#ffd8a0" />
+      <GalaxySpiral position={[22, -4, -70]} scale={1.5} tint="#a0ffd8" />
 
       {/* Satellite — drift-rotating, way back */}
       <DistantSatellite position={[-25, 9, -52]} />
@@ -2078,58 +2475,10 @@ export function CoalScene({
           <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={0.5} />
         </SceneFadeIn>
 
-        {/* Stage 2 — nebulas layer in next.
-            All five are the same cat's-eye texture, heavily disguised via
-            per-instance rotation + flipX + tint + scale. Real astrophotography
-            (even reused) beats any procedural gradient. */}
+        {/* Stage 2 — screenwide procedural nebulas. All 3D point-cloud
+            structures modelled on real nebula morphologies. */}
         <SceneFadeIn delay={400} duration={1400}>
-          <NebulaImage
-            url="/nebulas/nebula_transparent.png"
-            position={[-12, 4, -24]}
-            scale={24}
-            opacity={0.92}
-            tint="#a8c8ff"
-            spinSpeed={0.003}
-            initialRotation={0.4}
-          />
-          <NebulaImage
-            url="/nebulas/nebula_transparent.png"
-            position={[16, -3, -30]}
-            scale={30}
-            opacity={0.68}
-            tint="#ffb0d4"
-            spinSpeed={-0.002}
-            initialRotation={2.1}
-            flipX
-          />
-          <NebulaImage
-            url="/nebulas/nebula_transparent.png"
-            position={[-18, -7, -22]}
-            scale={18}
-            opacity={0.55}
-            tint="#ffc080"
-            spinSpeed={0.0018}
-            initialRotation={5.0}
-          />
-          <NebulaImage
-            url="/nebulas/nebula_transparent.png"
-            position={[18, 9, -27]}
-            scale={16}
-            opacity={0.6}
-            tint="#8be0ff"
-            spinSpeed={-0.0025}
-            initialRotation={3.7}
-            flipX
-          />
-          <NebulaImage
-            url="/nebulas/nebula_transparent.png"
-            position={[-2, -4, -36]}
-            scale={34}
-            opacity={0.42}
-            tint="#c8a8ff"
-            spinSpeed={0.0012}
-            initialRotation={1.45}
-          />
+          <MajorNebulas />
         </SceneFadeIn>
 
         {/* Stage 3 — dust + distant bg + shooting stars. */}
