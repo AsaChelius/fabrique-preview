@@ -24,6 +24,7 @@ import { DustMotes } from "./overhead";
 import { useSculpturePalette, type SculpturePalette } from "./palette";
 import { TUNING } from "./tuning";
 import { onReveal } from "./reveal-bus";
+import { setCursorHover, resetCursorHover } from "./cursor-bus";
 import { SHOWCASE_LAYOUT } from "./showcase-targets";
 import {
   collapseExpanded,
@@ -76,12 +77,14 @@ export function SculptureScene() {
             copy of the sculpture sits below the floor; ReflectiveFloor
             renders a semi-transparent dark plane on top. The camera
             sees the mirror through the tinted pane — a real reflection
-            at a known cost (one extra SuspendedCloud's worth of work). */}
-        {!palette.floorReflective && (
-          <MirrorBelow floorY={TUNING.floorY}>
-            <SuspendedCloud />
-          </MirrorBelow>
-        )}
+            at a known cost (one extra SuspendedCloud's worth of work).
+            Kept mounted in BOTH modes (hidden under the opaque
+            MeshReflectorMaterial floor in light mode) so toggling dark
+            doesn't remount the cloud and replay the showcase-morph
+            animation mid-project-view. */}
+        <MirrorBelow floorY={TUNING.floorY}>
+          <SuspendedCloud />
+        </MirrorBelow>
 
         <ReflectiveFloor palette={palette} />
       </Suspense>
@@ -143,6 +146,7 @@ function CardHitboxes() {
       // to avoid a stuck highlighted card / stuck pointer cursor.
       setHoveredCard(null);
       if (typeof document !== "undefined") document.body.style.cursor = "";
+      resetCursorHover();
     });
   }, []);
 
@@ -156,9 +160,18 @@ function CardHitboxes() {
     return (
       <mesh
         position={[0, SHOWCASE_LAYOUT.centerY, SHOWCASE_LAYOUT.centerZ]}
+        onPointerOver={(e) => {
+          e.stopPropagation();
+          setCursorHover(true);
+        }}
+        onPointerOut={(e) => {
+          e.stopPropagation();
+          setCursorHover(false);
+        }}
         onClick={(e) => {
           e.stopPropagation();
           collapseExpanded();
+          setCursorHover(false);
         }}
         visible={false}
       >
@@ -200,11 +213,13 @@ function CardHitPlane({
     e.stopPropagation();
     setHoveredCard(idx);
     document.body.style.cursor = "pointer";
+    setCursorHover(true);
   };
   const onOut = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
     setHoveredCard(null);
     document.body.style.cursor = "";
+    setCursorHover(false);
   };
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();

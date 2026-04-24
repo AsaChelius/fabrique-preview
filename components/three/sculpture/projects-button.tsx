@@ -31,6 +31,7 @@ import {
 } from "./showcase-bus";
 import { TUNING } from "./tuning";
 import type { Placement } from "./placements";
+import { setCursorHover } from "./cursor-bus";
 
 // ---- Button-local tuning -------------------------------------------------
 const BUTTON = {
@@ -379,10 +380,12 @@ export function ProjectsButton() {
   const onOver = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
     setHover(true);
+    setCursorHover(true);
   };
   const onOut = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
     setHover(false);
+    setCursorHover(false);
   };
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();

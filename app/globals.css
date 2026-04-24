@@ -741,7 +741,10 @@ body {
   font-size: 14px;
   position: relative;
   overflow: hidden;
-  pointer-events: auto;
+  /* Inherit from drei's inner wrapper so pointer events respect the view
+     state. auto here was capturing clicks in overview mode, preventing the
+     canvas raycaster from ever seeing the monitor-click. */
+  pointer-events: inherit;
 }
 /* CRT glass reflection — two diagonal highlight streaks (fat + thin)
    sit above the Win98 UI to sell "this is a convex glass tube", not a
@@ -1096,11 +1099,59 @@ body {
    this class is on <body>. Toggled by the /title client wrapper. */
 body.sculpture-mode {
   background: #faf8f3;
+  /* Native cursor hidden — <SculptureCursor /> renders a DOM ring that
+     transitions on hover, which a `cursor: url(...)` swap can't do. */
+  cursor: none;
+}
+body.sculpture-mode * {
+  cursor: none !important;
 }
 body.sculpture-mode .site-backdrop,
 body.sculpture-mode .brand,
 body.sculpture-mode .route-nav {
   display: none !important;
+}
+
+/* ---- Sculpture custom cursor ----
+   A thin outlined ring that follows the pointer. Hovering an interactive
+   element triggers .is-hover: the ring grows and fills. Color flips with
+   dark mode. */
+.sculpture-cursor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 8px;
+  height: 8px;
+  border: 1px solid #2c2e33;
+  border-radius: 50%;
+  background: transparent;
+  pointer-events: none;
+  z-index: 10000;
+  transform: translate3d(-50%, -50%, 0);
+  transition:
+    width 160ms ease-out,
+    height 160ms ease-out,
+    background-color 160ms ease-out,
+    border-color 160ms ease-out,
+    opacity 160ms ease-out;
+  will-change: transform, width, height;
+  opacity: 0;
+}
+.sculpture-cursor.is-visible {
+  opacity: 1;
+}
+.sculpture-cursor.is-hover {
+  width: 18px;
+  height: 18px;
+  background: rgba(44, 46, 51, 0.85);
+  border-color: rgba(44, 46, 51, 0.85);
+}
+body.sculpture-dark .sculpture-cursor {
+  border-color: #e6e4de;
+}
+body.sculpture-dark .sculpture-cursor.is-hover {
+  background: rgba(230, 228, 222, 0.85);
+  border-color: rgba(230, 228, 222, 0.85);
 }
 .sculpture-root {
   position: fixed;

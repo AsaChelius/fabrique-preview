@@ -15,6 +15,7 @@
 
 import { useEffect } from "react";
 import { ProjectsScene } from "./projects-scene";
+import { SculptureCursor } from "./sculpture-cursor";
 import { RouteTransition, navigateWithFade } from "./route-transition";
 
 export function ProjectsRoute() {
@@ -54,6 +55,7 @@ export function ProjectsRoute() {
         Replay
       </button>
       <RouteTransition />
+      <SculptureCursor />
     </main>
   );
 }

@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { SculptureScene } from "./sculpture-scene";
+import { SculptureCursor } from "./sculpture-cursor";
 import { triggerReveal } from "./reveal-bus";
 import { RouteTransition } from "./route-transition";
 import { setShowcase } from "./showcase-bus";
@@ -68,6 +69,7 @@ export function SculptureRoute() {
         {dark ? "Light" : "Dark"}
       </button>
       <RouteTransition />
+      <SculptureCursor />
     </main>
   );
 }
