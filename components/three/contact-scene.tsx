@@ -333,9 +333,9 @@ function CameraRig({ view }: { view: View }) {
       targetPos.current.set(0, TABLE_TOP_Y + 0.55, 2.3);
       targetLook.current.set(0, TABLE_TOP_Y + 0.55, 0);
     } else {
-      // 3/4 view — front and right side of the table visible
-      targetPos.current.set(3.8, 2.6, 7.2);
-      targetLook.current.set(0, 2.0, 0);
+      // 3/4 view pushed back — table sits deeper in the void
+      targetPos.current.set(5.2, 3.2, 10.5);
+      targetLook.current.set(0, 1.4, 0);
     }
     camera.position.lerp(targetPos.current, Math.min(1, delta * 2.2));
     camera.lookAt(targetLook.current);
@@ -360,38 +360,52 @@ function SpotlightRig() {
       <ambientLight intensity={0.02} color="#303846" />
       <spotLight
         ref={spotRef}
-        position={[0, 7.2, 0.1]}
-        angle={0.36}
+        position={[0, 7.4, 0.1]}
+        angle={0.44}
         penumbra={0.55}
-        intensity={140}
-        distance={14}
-        decay={2}
+        intensity={180}
+        distance={16}
+        decay={1.8}
         color="#ffdba0"
         castShadow
         shadow-mapSize-width={1024}
         shadow-mapSize-height={1024}
       />
-      <object3D ref={targetRef} position={[0, TABLE_TOP_Y + 0.4, 0]} />
+      <object3D ref={targetRef} position={[0, 0, 0]} />
     </>
   );
 }
 
-/** Visible beam — thin additive cone. Apex up near the spotlight source,
-    base down at the table. Default coneGeometry has apex at +Y, so NO
-    rotation — any flip would invert the taper (the previous bug). */
+/** Visible beam — additive cone from the spotlight source all the way
+    to the floor. Apex up (default coneGeometry orientation), base down.
+    Height 7.4, centered at y=3.7 → apex y=7.4, base y=0 (the floor). */
 function LightBeam() {
-  // Center at midpoint between source (y=7.2) and table top (y=1.6).
-  // Height 5.6, center y = 4.4, apex y = 7.2, base y = 1.6.
   return (
-    <mesh position={[0, 4.4, 0.1]}>
-      <coneGeometry args={[1.9, 5.6, 40, 1, true]} />
+    <mesh position={[0, 3.7, 0.1]}>
+      <coneGeometry args={[2.4, 7.4, 48, 1, true]} />
       <meshBasicMaterial
         color="#ffd890"
         transparent
-        opacity={0.06}
+        opacity={0.055}
         blending={THREE.AdditiveBlending}
         side={THREE.DoubleSide}
         depthWrite={false}
+        toneMapped={false}
+      />
+    </mesh>
+  );
+}
+
+/** Ground disc — subtle warm pool where the spotlight hits the floor, so
+    the beam has something to land on (not just pure void). */
+function SpotlightFloor() {
+  return (
+    <mesh position={[0, 0.002, 0.1]} rotation={[-Math.PI / 2, 0, 0]}>
+      <circleGeometry args={[2.3, 48]} />
+      <meshBasicMaterial
+        color="#3a2c1a"
+        transparent
+        opacity={0.9}
         toneMapped={false}
       />
     </mesh>
@@ -835,16 +849,17 @@ export function ContactScene() {
 
   return (
     <Canvas
-      camera={{ position: [3.8, 2.6, 7.2], fov: 38 }}
+      camera={{ position: [5.2, 3.2, 10.5], fov: 36 }}
       shadows
       gl={{ antialias: true, alpha: false }}
       style={{ width: "100%", height: "100%" }}
     >
       <Suspense fallback={null}>
         <color attach="background" args={["#020205"]} />
-        <fog attach="fog" args={["#020205", 10, 26]} />
+        <fog attach="fog" args={["#020205", 14, 34]} />
 
         <SpotlightRig />
+        <SpotlightFloor />
         <LightBeam />
         <WoodenTable />
         <CRTMonitor
