@@ -59,6 +59,26 @@ export function sampleSignSilhouette(): SampledLayers {
   fctx.shadowBlur = TUNING.letterKnockoutPadding * 1.2;
   drawWord(fctx, W, H);
   fctx.shadowBlur = 0;
+  // Also knock out the "Nos Projets" button area so plaque shards don't
+  // render over the button label. World coords → plaque-canvas pixel coords.
+  const plaqueHalfW_world = TUNING.wordHalfWidth;
+  const plaqueHalfH_world = plaqueHalfW_world / (W / H);
+  const btnPad = TUNING.buttonKnockoutPadding;
+  const btnHalfW_px =
+    ((TUNING.buttonHalfWidth + btnPad) / plaqueHalfW_world) * (W / 2);
+  const btnHalfH_px =
+    ((TUNING.buttonHalfHeight + btnPad) / plaqueHalfH_world) * (H / 2);
+  // World y → pixel y (y-flipped): py = ((1 - y/halfH) / 2) * H.
+  const btnCenterY_px =
+    ((1 - TUNING.buttonCenterY / plaqueHalfH_world) / 2) * H;
+  const btnCenterX_px = W / 2;
+  fctx.fillStyle = "#000";
+  fctx.fillRect(
+    btnCenterX_px - btnHalfW_px,
+    btnCenterY_px - btnHalfH_px,
+    btnHalfW_px * 2,
+    btnHalfH_px * 2,
+  );
   fctx.globalCompositeOperation = "source-over";
   const frameMask = opaquePixels(fctx, W, H);
 

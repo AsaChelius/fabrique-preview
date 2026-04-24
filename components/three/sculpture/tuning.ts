@@ -38,6 +38,20 @@ export const TUNING = {
    *  breathing gap sells the "letters in front of a plaque" read. */
   letterKnockoutPadding: 6,
 
+  // ---- Nos Projets button (shared with sampling for plaque knockout) ----
+  /** World Y-center where the button sits (negative = below FABRIQUE,
+   *  inside the plaque area). */
+  buttonCenterY: -1.35,
+  /** Button label half-width in world units. */
+  buttonHalfWidth: 1.15,
+  /** Button label half-height in world units. Derived from its own
+   *  rasterization aspect, but we declare it explicitly so sampling.ts
+   *  can knock out the correct region without importing projects-button. */
+  buttonHalfHeight: 0.19,
+  /** Extra padding (world units) around the button knockout rectangle
+   *  so the plaque leaves a clean breathing gap around the label. */
+  buttonKnockoutPadding: 0.14,
+
   // ---- Shard counts ---------------------------------------------------
   /** Shards forming the letters. Denser now for crisper silhouette edges. */
   letterShardCount: 5200,
@@ -107,17 +121,22 @@ export const TUNING = {
   /** Y world-position of the floor plane. Just below the bottom of the
    *  plaque. */
   floorY: -2.05,
-  /** Floor base color — matches the background so the plane has no
-   *  visible edge; only the reflection registers. */
-  floorColor: "#faf8f3",
-  /** Mirror strength — near 1 for a clear polished-floor reflection. */
-  floorReflectStrength: 0.92,
-  /** Reflection blur — low so the reflected sculpture stays legible. */
-  floorReflectBlur: 80,
-  /** Mix of blurred vs sharp reflection. 0 = all sharp. */
-  floorMixBlur: 0.4,
-  /** Floor roughness — low means sharp specular reflections (polished). */
-  floorRoughness: 0.22,
+  /** Floor base color — a few shades darker than the background so the
+   *  reflected sculpture sits on a cooler tone that makes the mirror
+   *  image clearly visible without dominating the composition. */
+  floorColor: "#d5d1c3",
+  /** Mirror strength — 1.0 for maximum reflected light. */
+  floorReflectStrength: 1.0,
+  /** Reflection blur — tight so the reflection reads as mirror-sharp. */
+  floorReflectBlur: 22,
+  /** Mix of blurred vs sharp reflection. Near 0 = crisp mirror. */
+  floorMixBlur: 0.08,
+  /** Reflection mix strength — punched up so the reflected sculpture
+   *  is clearly legible against the darker floor. */
+  floorMixStrength: 3.2,
+  /** Floor roughness — legacy, unused (we force roughness=1 in the mesh
+   *  to kill the directional-light specular hotspot). */
+  floorRoughness: 1.0,
 
   // ---- Physics / idle sway -------------------------------------------
   /** Minimum idle sway amplitude (world units) per shard. */

@@ -18,6 +18,7 @@ import { Suspense, useEffect, useRef } from "react";
 import * as THREE from "three";
 import type { PerspectiveCamera as PerspectiveCameraImpl } from "three";
 import { SuspendedCloud } from "./suspended-cloud";
+import { ProjectsButton } from "./projects-button";
 import { TUNING } from "./tuning";
 import { onReveal } from "./reveal-bus";
 
@@ -64,6 +65,7 @@ export function SculptureScene() {
         <ResponsiveCamera />
         <RevealCamera />
         <SuspendedCloud />
+        <ProjectsButton />
         <ReflectiveFloor />
       </Suspense>
     </Canvas>
@@ -186,7 +188,7 @@ function ReflectiveFloor() {
         mirror={TUNING.floorReflectStrength}
         blur={[TUNING.floorReflectBlur, TUNING.floorReflectBlur / 3]}
         mixBlur={TUNING.floorMixBlur}
-        mixStrength={1.6}
+        mixStrength={TUNING.floorMixStrength}
         resolution={1024}
         /* metalness=0 + high base roughness kills the directional-light
            specular hotspot (the "glare" in the center of the reflection).

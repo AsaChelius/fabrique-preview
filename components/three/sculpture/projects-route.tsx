@@ -1,21 +1,23 @@
 "use client";
 
 /**
- * Route wrapper for the anamorphic sculpture title page.
+ * /projects — the second perspective of the sculpture. Three hollow
+ * circles made of the same suspended metal language as the FABRIQUE
+ * title page. Placeholder silhouettes; will be swapped for per-project
+ * marks later.
  *
- * Responsibilities:
- *   - Toggle `body.sculpture-mode` so globals.css hides the dark-theme
- *     chrome (site backdrop, brand text, route nav) for this route only.
- *   - Mount the R3F canvas inside a full-viewport white container.
- *   - Provide a small "Replay" button that re-kicks the reveal animation.
+ * Reuses `sculpture-mode` so the dark-theme chrome stays hidden.
+ *
+ * Ships the same bottom-center "Replay" button as /title — here it
+ * routes back to /title. Because <RevealCamera /> fires its pan on mount,
+ * arriving at /title from this route automatically plays the reveal.
  */
 
 import { useEffect } from "react";
-import { SculptureScene } from "./sculpture-scene";
-import { triggerReveal } from "./reveal-bus";
-import { RouteTransition } from "./route-transition";
+import { ProjectsScene } from "./projects-scene";
+import { RouteTransition, navigateWithFade } from "./route-transition";
 
-export function SculptureRoute() {
+export function ProjectsRoute() {
   useEffect(() => {
     document.body.classList.add("sculpture-mode");
     return () => {
@@ -26,12 +28,12 @@ export function SculptureRoute() {
   return (
     <main>
       <div className="sculpture-root">
-        <SculptureScene />
+        <ProjectsScene />
       </div>
       <button
         type="button"
-        onClick={() => triggerReveal()}
-        aria-label="Replay reveal animation"
+        onClick={() => navigateWithFade("/title")}
+        aria-label="Back to title with reveal animation"
         style={{
           position: "fixed",
           bottom: "2rem",
