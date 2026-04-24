@@ -84,6 +84,52 @@ function jitter(i: number, axis: number) {
 // SceneFadeIn — progressive mount animation
 // -----------------------------------------------------------------------------
 
+// -----------------------------------------------------------------------------
+// Mouse-driven wind — module-scope state that every nebula reads from. Mouse
+// motion injects velocity; velocity decays slowly (friction) and integrates
+// into an offset; the offset decays even slower so the scene "stays"
+// affected for a few seconds after each swoosh. Per-nebula drift factor
+// gives natural parallax (far nebulas move less).
+// -----------------------------------------------------------------------------
+
+const WIND = {
+  vx: 0,
+  vy: 0,
+  ox: 0,
+  oy: 0,
+};
+
+function WindDriver() {
+  const { pointer } = useThree();
+  const prev = useRef({ x: 0, y: 0, init: false });
+  useFrame((_, delta) => {
+    if (!prev.current.init) {
+      prev.current.x = pointer.x;
+      prev.current.y = pointer.y;
+      prev.current.init = true;
+      return;
+    }
+    const dx = pointer.x - prev.current.x;
+    const dy = pointer.y - prev.current.y;
+    prev.current.x = pointer.x;
+    prev.current.y = pointer.y;
+    // Inject mouse delta into wind velocity — strong scalar so a small
+    // cursor movement produces a visible swoosh on the nebulas.
+    WIND.vx += dx * 24;
+    WIND.vy += dy * 24;
+    // Velocity decay (air friction)
+    WIND.vx *= 0.93;
+    WIND.vy *= 0.93;
+    // Accumulate velocity into persistent offset
+    WIND.ox += WIND.vx * delta;
+    WIND.oy += WIND.vy * delta;
+    // Offset decay — very slow so the displacement lingers
+    WIND.ox *= 0.994;
+    WIND.oy *= 0.994;
+  });
+  return null;
+}
+
 /**
  * Wraps children in a group whose descendant materials fade from 0 → 1
  * opacity on mount. Takes a delay + duration so we can stagger elements:
@@ -650,13 +696,16 @@ function PixelNebula({
   }, [seed, warm, cool]);
 
   useFrame((_, delta) => {
-    if (ref.current) ref.current.rotation.z += delta * 0.008;
+    if (ref.current) ref.current.rotation.z += delta * 0.008 + WIND.vx * 0.0003;
   });
   const baseScale = useRef(scale);
+  const basePos = useRef(position);
   useFrame(({ clock }) => {
     if (!ref.current) return;
     const pulse = 1 + Math.sin(clock.elapsedTime * 0.5 + seed) * 0.05;
     ref.current.scale.setScalar(baseScale.current * pulse);
+    ref.current.position.x = basePos.current[0] + WIND.ox * 0.8;
+    ref.current.position.y = basePos.current[1] + WIND.oy * 0.8;
   });
 
   return (
@@ -1026,14 +1075,17 @@ function EmissionPillar({
     return buildPointsGeometry(rows);
   }, [seed]);
   const baseScale = useRef(scale);
+  const basePos = useRef(position);
   useFrame(({ clock }, delta) => {
     if (!ref.current) return;
-    ref.current.rotation.z += delta * spin;
-    // Gentle Y-axis wobble — the pillars look alive (being sculpted by stellar wind).
-    ref.current.rotation.y = Math.sin(clock.elapsedTime * 0.25 + seed) * 0.05;
-    // Slow breathing — subtle scale pulse ±3%.
+    ref.current.rotation.z += delta * spin + WIND.vx * 0.0004;
+    ref.current.rotation.y =
+      Math.sin(clock.elapsedTime * 0.25 + seed) * 0.05 + WIND.ox * 0.015;
     const breathe = 1 + Math.sin(clock.elapsedTime * 0.4 + seed) * 0.03;
     ref.current.scale.setScalar(baseScale.current * breathe);
+    // Wind parallax — pillars drift on the mouse-wind offset
+    ref.current.position.x = basePos.current[0] + WIND.ox * 0.9;
+    ref.current.position.y = basePos.current[1] + WIND.oy * 0.9;
   });
   return (
     <points ref={ref} position={position} scale={scale}>
@@ -1126,14 +1178,15 @@ function SupernovaRemnant({
     return buildPointsGeometry(rows);
   }, [seed]);
   const baseScale = useRef(scale);
+  const basePos = useRef(position);
   useFrame(({ clock }, delta) => {
     if (!ref.current) return;
-    ref.current.rotation.x += delta * spin;
-    ref.current.rotation.y += delta * spin * 0.7;
-    // Pulsing expansion — supernova remnant is literally expanding; the
-    // scale slowly breathes ±6% over a 4-second period.
+    ref.current.rotation.x += delta * spin + WIND.vy * 0.0005;
+    ref.current.rotation.y += delta * spin * 0.7 + WIND.vx * 0.0005;
     const pulse = 1 + Math.sin(clock.elapsedTime * 0.6 + seed) * 0.06;
     ref.current.scale.setScalar(baseScale.current * pulse);
+    ref.current.position.x = basePos.current[0] + WIND.ox * 1.1;
+    ref.current.position.y = basePos.current[1] + WIND.oy * 1.1;
   });
   return (
     <points ref={ref} position={position} scale={scale}>
@@ -1226,15 +1279,16 @@ function RingNebula({
   }, [seed, inner, outer]);
   const outerRef = useRef<THREE.Group>(null);
   const baseScale = useRef(scale);
+  const basePos = useRef(position);
   useFrame(({ clock }, delta) => {
-    if (ref.current) ref.current.rotation.z += delta * spin;
-    // Outer group handles scale breathing so the tilt transform on the
-    // points group stays clean.
+    if (ref.current) ref.current.rotation.z += delta * spin + WIND.vx * 0.0003;
     if (outerRef.current) {
       const breathe = 1 + Math.sin(clock.elapsedTime * 0.35 + seed) * 0.04;
       outerRef.current.scale.setScalar(baseScale.current * breathe);
-      // Gentle precession — the ring axis wobbles slightly over time.
-      outerRef.current.rotation.y = Math.sin(clock.elapsedTime * 0.15 + seed) * 0.08;
+      outerRef.current.rotation.y =
+        Math.sin(clock.elapsedTime * 0.15 + seed) * 0.08 + WIND.ox * 0.012;
+      outerRef.current.position.x = basePos.current[0] + WIND.ox * 1.0;
+      outerRef.current.position.y = basePos.current[1] + WIND.oy * 1.0;
     }
   });
   return (
@@ -1309,10 +1363,10 @@ function BipolarNebula({
     return buildPointsGeometry(rows);
   }, [seed]);
   const baseScale = useRef(scale);
+  const basePos = useRef(position);
   useFrame(({ clock }, delta) => {
     if (!ref.current) return;
-    ref.current.rotation.z += delta * spin;
-    // Lobes "breathe" asymmetrically on X and Y — the butterfly flutters.
+    ref.current.rotation.z += delta * spin + WIND.vx * 0.0004;
     const xBreath = 1 + Math.sin(clock.elapsedTime * 0.5 + seed) * 0.05;
     const yBreath = 1 + Math.sin(clock.elapsedTime * 0.7 + seed + 1) * 0.04;
     ref.current.scale.set(
@@ -1320,6 +1374,8 @@ function BipolarNebula({
       baseScale.current * yBreath,
       baseScale.current,
     );
+    ref.current.position.x = basePos.current[0] + WIND.ox * 1.2;
+    ref.current.position.y = basePos.current[1] + WIND.oy * 1.2;
   });
   return (
     <points ref={ref} position={position} scale={scale}>
@@ -1381,13 +1437,16 @@ function ReflectionCloud({
     return buildPointsGeometry(rows);
   }, [seed, tints]);
   const baseScale = useRef(scale);
+  const basePos = useRef(position);
   useFrame(({ clock }, delta) => {
     if (!ref.current) return;
-    ref.current.rotation.z += delta * 0.002;
-    ref.current.rotation.x = Math.sin(clock.elapsedTime * 0.1 + seed) * 0.1;
-    // Drift breathing — clouds feel alive, slowly swelling.
+    ref.current.rotation.z += delta * 0.002 + WIND.vx * 0.0003;
+    ref.current.rotation.x =
+      Math.sin(clock.elapsedTime * 0.1 + seed) * 0.1 + WIND.oy * 0.01;
     const breathe = 1 + Math.sin(clock.elapsedTime * 0.22 + seed) * 0.04;
     ref.current.scale.setScalar(baseScale.current * breathe);
+    ref.current.position.x = basePos.current[0] + WIND.ox * 1.4;
+    ref.current.position.y = basePos.current[1] + WIND.oy * 1.4;
   });
   return (
     <points ref={ref} position={position} scale={scale}>
@@ -1406,140 +1465,166 @@ function ReflectionCloud({
   );
 }
 
-/** MajorNebulas — the screenwide stage-2 layer. Each instance is placed at
-    a depth that puts it well behind the planets and at a scale large enough
-    to fill a meaningful fraction of the frustum. All have breathing/
-    rotation animation per-component. */
+/** MajorNebulas — screenwide stage-2 layer. Positions span the full
+    visible frustum at z=-40 to -80; every quadrant of the screen has a
+    distinct nebula in a distinct color family. The massive central
+    reflection cloud + huge ring nebula act as the ambient wash;
+    everything else is accent structure. */
 function MajorNebulas() {
   return (
     <>
-      {/* Pillars of Creation — huge, left side, warm rust + teal */}
-      <EmissionPillar
-        position={[-20, 2, -46]}
-        scale={7}
-        seed={17}
-        spin={0.0008}
-      />
-      {/* Second pillar cluster — different colors, far right */}
-      <EmissionPillar
-        position={[22, -4, -52]}
-        scale={6}
-        seed={31}
-        spin={-0.001}
-      />
-      {/* Supernova remnant — center, bright cyan core with red filaments */}
-      <SupernovaRemnant
-        position={[8, 6, -48]}
-        scale={9}
-        seed={29}
-        spin={0.003}
-      />
-      {/* Second supernova — much farther back, tiny on screen */}
-      <SupernovaRemnant
-        position={[-16, 12, -72]}
-        scale={5}
-        seed={59}
-        spin={-0.002}
-      />
-      {/* Ring nebula — top-right, pink/cyan */}
+      {/* === Central huge wash — fills the middle ============================= */}
       <RingNebula
-        position={[26, 12, -54]}
-        scale={7}
-        seed={51}
-        tiltX={0.9}
-        spin={0.01}
-        inner="#ff70c8"
-        outer="#60d8ff"
-      />
-      {/* Ring — center-back, huge, green/violet (HUGE screenwide anchor) */}
-      <RingNebula
-        position={[-2, -4, -68]}
-        scale={14}
+        position={[0, -2, -72]}
+        scale={18}
         seed={67}
         tiltX={0.5}
         spin={-0.008}
         inner="#80ffb0"
         outer="#b080ff"
       />
-      {/* Ring — gold/magenta, off left */}
+      <ReflectionCloud
+        position={[0, 0, -64]}
+        scale={20}
+        seed={101}
+        tints={["#6080ff", "#ff80a0", "#ffc060", "#80ffe0"]}
+      />
+
+      {/* === Left side ==================================================== */}
+      <EmissionPillar
+        position={[-28, 4, -48]}
+        scale={9}
+        seed={17}
+        spin={0.0008}
+      />
+      <BipolarNebula
+        position={[-26, -10, -44]}
+        scale={7}
+        seed={83}
+        spin={0.004}
+      />
       <RingNebula
-        position={[-24, 10, -58]}
-        scale={6}
+        position={[-32, 12, -60]}
+        scale={8}
         seed={91}
         tiltX={1.1}
         spin={0.014}
         inner="#ffd060"
         outer="#ff40a0"
       />
-      {/* Butterfly / bipolar — mid-distance, lower-left, blue→pink */}
-      <BipolarNebula
-        position={[-18, -8, -42]}
-        scale={6}
-        seed={83}
-        spin={0.004}
-      />
-      {/* Second butterfly — hot red-orange, far right */}
-      <BipolarNebula
-        position={[18, -12, -50]}
-        scale={5}
-        seed={97}
-        spin={-0.005}
-      />
-      {/* Reflection cloud — screen-filling backdrop, 4-color palette */}
       <ReflectionCloud
-        position={[0, 0, -62]}
-        scale={14}
-        seed={101}
-        tints={["#6080ff", "#ff80a0", "#ffc060", "#80ffe0"]}
-      />
-      {/* Reflection — cooler, upper-left */}
-      <ReflectionCloud
-        position={[-14, 14, -60]}
-        scale={8}
+        position={[-22, 18, -62]}
+        scale={10}
         seed={137}
         tints={["#4060c0", "#7040a0", "#80a0ff", "#4080ff"]}
       />
-      {/* Reflection — warm, lower-right */}
-      <ReflectionCloud
-        position={[16, -14, -58]}
-        scale={7}
-        seed={163}
-        tints={["#ff5060", "#ffa040", "#ffd080", "#ff80c0"]}
-      />
-      {/* Reflection — exotic green/teal, overhead */}
-      <ReflectionCloud
-        position={[4, 18, -64]}
-        scale={6}
-        seed={181}
-        tints={["#40ffb0", "#20e0c0", "#80ff60", "#a0ffe0"]}
-      />
-      {/* Cat's-Eye pixel nebulas — detail variety */}
       <PixelNebula
-        position={[28, -16, -50]}
-        scale={4}
-        seed={7}
-        warm="#ff9068"
-        cool="#88b8ff"
-        pointSize={3}
-        opacity={1}
-      />
-      <PixelNebula
-        position={[-28, 6, -56]}
-        scale={4.5}
+        position={[-36, -4, -58]}
+        scale={5}
         seed={23}
         warm="#ffb080"
         cool="#b0a0ff"
         pointSize={2.8}
         opacity={0.95}
       />
+      <SupernovaRemnant
+        position={[-20, -4, -54]}
+        scale={7}
+        seed={59}
+        spin={-0.002}
+      />
+
+      {/* === Right side =================================================== */}
+      <EmissionPillar
+        position={[28, -2, -52]}
+        scale={8}
+        seed={31}
+        spin={-0.001}
+      />
+      <SupernovaRemnant
+        position={[22, 8, -50]}
+        scale={10}
+        seed={29}
+        spin={0.003}
+      />
+      <RingNebula
+        position={[32, 14, -56]}
+        scale={9}
+        seed={51}
+        tiltX={0.9}
+        spin={0.01}
+        inner="#ff70c8"
+        outer="#60d8ff"
+      />
+      <BipolarNebula
+        position={[26, -14, -50]}
+        scale={7}
+        seed={97}
+        spin={-0.005}
+      />
+      <ReflectionCloud
+        position={[24, -18, -60]}
+        scale={9}
+        seed={163}
+        tints={["#ff5060", "#ffa040", "#ffd080", "#ff80c0"]}
+      />
       <PixelNebula
-        position={[10, 16, -70]}
-        scale={3.5}
+        position={[36, -4, -56]}
+        scale={5}
+        seed={7}
+        warm="#ff9068"
+        cool="#88b8ff"
+        pointSize={3}
+        opacity={1}
+      />
+
+      {/* === Top strip ==================================================== */}
+      <ReflectionCloud
+        position={[4, 22, -66]}
+        scale={9}
+        seed={181}
+        tints={["#40ffb0", "#20e0c0", "#80ff60", "#a0ffe0"]}
+      />
+      <PixelNebula
+        position={[14, 20, -72]}
+        scale={4.5}
         seed={199}
         warm="#ff40a0"
         cool="#40ffff"
         pointSize={2.6}
         opacity={0.9}
+      />
+      <RingNebula
+        position={[-12, 22, -70]}
+        scale={6}
+        seed={217}
+        tiltX={1.4}
+        spin={-0.012}
+        inner="#ffc040"
+        outer="#80e0ff"
+      />
+
+      {/* === Bottom strip ================================================= */}
+      <ReflectionCloud
+        position={[-6, -20, -66]}
+        scale={9}
+        seed={227}
+        tints={["#6040a0", "#a080ff", "#ff80c0", "#d040ff"]}
+      />
+      <PixelNebula
+        position={[8, -22, -70]}
+        scale={4}
+        seed={241}
+        warm="#ff6040"
+        cool="#40a0ff"
+        pointSize={2.6}
+        opacity={0.9}
+      />
+      <BipolarNebula
+        position={[-2, -26, -58]}
+        scale={6}
+        seed={257}
+        spin={0.006}
       />
     </>
   );
@@ -2183,13 +2268,325 @@ function PlanetShapeMesh({
   shellRef: React.MutableRefObject<THREE.Mesh | null>;
   coreRef: React.MutableRefObject<THREE.Mesh | null>;
 }) {
-  switch (shape) {
-    case "striped":         return <StripedPlanet glow={glow} shellRef={shellRef} coreRef={coreRef} />;
-    case "grid":            return <GridPlanet glow={glow} shellRef={shellRef} coreRef={coreRef} />;
-    case "crystalCluster":  return <CrystalClusterPlanet glow={glow} shellRef={shellRef} coreRef={coreRef} />;
-    case "volcano":         return <VolcanoPlanet glow={glow} shellRef={shellRef} coreRef={coreRef} />;
-    case "plasma":          return <PlasmaPlanet glow={glow} shellRef={shellRef} coreRef={coreRef} />;
-  }
+  // The "shape" per-index now just picks which arcade cabinet variant to
+  // show — cabinet chassis, marquee colors, screen art differ. Everything
+  // is still a cabinet; the animation contract (shellRef / coreRef) is
+  // preserved so the focus crack-open lerp still works.
+  return <ArcadeCabinet variant={shape} glow={glow} shellRef={shellRef} coreRef={coreRef} />;
+}
+
+// -----------------------------------------------------------------------------
+// Arcade cabinet — the project icon. Tall rectangular cabinet with a curved
+// marquee, a glowing CRT screen, a slanted control deck with joystick +
+// buttons, and a base pedestal. Each "variant" (mapped from the old planet
+// shape enum) picks different cabinet/marquee/screen colors + screen art
+// pattern so all five cabinets read as distinct units.
+// -----------------------------------------------------------------------------
+
+type CabinetStyle = {
+  cabinet: string;
+  marquee: string;
+  screenBg: string;
+  screenFg: string;
+  pattern: "grid" | "pixels" | "rings" | "scanlines" | "wave";
+};
+
+const CABINET_BY_VARIANT: Record<PlanetShape, CabinetStyle> = {
+  striped: {
+    cabinet: "#1a1630",
+    marquee: "#ffd060",
+    screenBg: "#100a1a",
+    screenFg: "#ff70e0",
+    pattern: "scanlines",
+  },
+  grid: {
+    cabinet: "#0e2030",
+    marquee: "#40e0ff",
+    screenBg: "#041018",
+    screenFg: "#40ffe0",
+    pattern: "grid",
+  },
+  crystalCluster: {
+    cabinet: "#301a30",
+    marquee: "#ff70c8",
+    screenBg: "#180820",
+    screenFg: "#ffd860",
+    pattern: "pixels",
+  },
+  volcano: {
+    cabinet: "#2a1410",
+    marquee: "#ff5a24",
+    screenBg: "#1a0604",
+    screenFg: "#ffc040",
+    pattern: "rings",
+  },
+  plasma: {
+    cabinet: "#1a1a2c",
+    marquee: "#80ffb0",
+    screenBg: "#06121a",
+    screenFg: "#a060ff",
+    pattern: "wave",
+  },
+};
+
+/** Procedurally generate a pixel-art texture on a canvas for the cabinet's
+    CRT screen. Distinct pattern per variant; emissive on the screen plane
+    so it glows like a real arcade monitor. */
+function useScreenTexture(style: CabinetStyle): THREE.CanvasTexture | null {
+  return useMemo(() => {
+    if (typeof document === "undefined") return null;
+    const size = 128;
+    const cv = document.createElement("canvas");
+    cv.width = size;
+    cv.height = size;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = style.screenBg;
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = style.screenFg;
+    switch (style.pattern) {
+      case "grid": {
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = style.screenFg;
+        ctx.globalAlpha = 0.55;
+        for (let i = 0; i < size; i += 12) {
+          ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, size); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(size, i); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        // Central "player" pixel
+        ctx.fillRect(size / 2 - 4, size / 2 - 4, 8, 8);
+        break;
+      }
+      case "pixels": {
+        // 16×16 grid of random filled cells — pixel-art landscape
+        const s = 8;
+        for (let y = 0; y < size; y += s) {
+          for (let x = 0; x < size; x += s) {
+            if (Math.random() > 0.62) {
+              const shade = 0.5 + Math.random() * 0.5;
+              ctx.globalAlpha = shade;
+              ctx.fillRect(x, y, s, s);
+            }
+          }
+        }
+        ctx.globalAlpha = 1;
+        break;
+      }
+      case "rings": {
+        // Concentric rings — classic radar / asteroids look
+        const cx = size / 2;
+        const cy = size / 2;
+        for (let r = 8; r < size; r += 10) {
+          ctx.beginPath();
+          ctx.strokeStyle = style.screenFg;
+          ctx.globalAlpha = 1 - r / size;
+          ctx.lineWidth = 2;
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        // Center dot
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case "scanlines": {
+        // Horizontal bars at varying intensity
+        for (let y = 0; y < size; y += 4) {
+          ctx.globalAlpha = 0.2 + Math.random() * 0.6;
+          ctx.fillRect(0, y, size, 2);
+        }
+        ctx.globalAlpha = 1;
+        // Insert a big pixel word-ish block
+        ctx.fillRect(size / 2 - 20, size / 2 - 6, 40, 12);
+        break;
+      }
+      case "wave": {
+        // Sine wave of dots — oscilloscope vibe
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = style.screenFg;
+        ctx.beginPath();
+        for (let x = 0; x < size; x++) {
+          const y = size / 2 + Math.sin(x * 0.15) * 28;
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        // Reference line
+        ctx.globalAlpha = 0.3;
+        ctx.beginPath();
+        ctx.moveTo(0, size / 2);
+        ctx.lineTo(size, size / 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        break;
+      }
+    }
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.magFilter = THREE.NearestFilter; // crisp pixels
+    tex.minFilter = THREE.NearestFilter;
+    tex.needsUpdate = true;
+    return tex;
+  }, [style]);
+}
+
+function ArcadeCabinet({
+  variant,
+  glow,
+  shellRef,
+  coreRef,
+}: {
+  variant: PlanetShape;
+  glow: string;
+  shellRef: React.MutableRefObject<THREE.Mesh | null>;
+  coreRef: React.MutableRefObject<THREE.Mesh | null>;
+}) {
+  const style = CABINET_BY_VARIANT[variant];
+  const screenTex = useScreenTexture(style);
+
+  // Dimensions — cabinet is ~2.6 tall, 1.8 wide, 1.3 deep. Sized to roughly
+  // match the old planet footprint so arena bounds still work.
+  const W = 1.7;
+  const H = 2.5;
+  const D = 1.2;
+
+  return (
+    <group>
+      {/* Halo shell (contract: shellRef — fades + scales out on focus).
+          Purely for the crack-open reveal animation. */}
+      <mesh ref={shellRef} scale={1.25}>
+        <boxGeometry args={[W * 1.1, H * 1.1, D * 1.1]} />
+        <meshBasicMaterial
+          color={glow}
+          transparent
+          opacity={0.12}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+
+      {/* Base pedestal — short footprint so the cabinet floats clearly */}
+      <mesh position={[0, -H / 2 + 0.15, 0]}>
+        <boxGeometry args={[W * 1.05, 0.3, D * 1.1]} />
+        <meshStandardMaterial color="#0c0c14" metalness={0.35} roughness={0.6} />
+      </mesh>
+
+      {/* Main cabinet body */}
+      <mesh position={[0, 0.15, 0]}>
+        <boxGeometry args={[W, H - 0.3, D]} />
+        <meshStandardMaterial
+          color={style.cabinet}
+          metalness={0.3}
+          roughness={0.55}
+        />
+      </mesh>
+
+      {/* Side art trim strips — glowing vertical lines in the glow color */}
+      {[-1, 1].map((s) => (
+        <mesh key={s} position={[s * (W / 2 + 0.005), 0.2, 0]}>
+          <boxGeometry args={[0.02, H - 0.5, D * 0.92]} />
+          <meshBasicMaterial color={glow} toneMapped={false} />
+        </mesh>
+      ))}
+
+      {/* Marquee — top of the cabinet, glows with the marquee color */}
+      <mesh position={[0, H / 2 - 0.05, 0]}>
+        <boxGeometry args={[W + 0.08, 0.4, D + 0.08]} />
+        <meshStandardMaterial
+          color={style.marquee}
+          emissive={style.marquee}
+          emissiveIntensity={1.4}
+          metalness={0.4}
+          roughness={0.3}
+          toneMapped={false}
+        />
+      </mesh>
+      {/* Marquee beveled top cap */}
+      <mesh position={[0, H / 2 + 0.16, 0]}>
+        <boxGeometry args={[W + 0.1, 0.06, D + 0.1]} />
+        <meshStandardMaterial color="#05060a" metalness={0.6} roughness={0.3} />
+      </mesh>
+
+      {/* CRT screen — contract: coreRef drives focus crack animation */}
+      <mesh
+        ref={coreRef}
+        position={[0, 0.55, D / 2 + 0.005]}
+      >
+        <planeGeometry args={[W * 0.72, H * 0.34]} />
+        <meshStandardMaterial
+          map={screenTex}
+          color={style.screenFg}
+          emissiveMap={screenTex}
+          emissive={style.screenFg}
+          emissiveIntensity={2.5}
+          metalness={0}
+          roughness={0.2}
+          toneMapped={false}
+        />
+      </mesh>
+      {/* Screen bezel */}
+      <mesh position={[0, 0.55, D / 2 + 0.002]}>
+        <planeGeometry args={[W * 0.82, H * 0.42]} />
+        <meshStandardMaterial color="#04040a" metalness={0.3} roughness={0.6} />
+      </mesh>
+
+      {/* Control deck — angled box sloping away from the screen */}
+      <mesh position={[0, -0.35, D / 2 + 0.2]} rotation={[-Math.PI / 7, 0, 0]}>
+        <boxGeometry args={[W * 0.95, 0.22, 0.7]} />
+        <meshStandardMaterial color="#14141e" metalness={0.4} roughness={0.5} />
+      </mesh>
+
+      {/* Joystick */}
+      <group position={[-W * 0.22, -0.22, D / 2 + 0.35]} rotation={[-Math.PI / 7, 0, 0]}>
+        <mesh>
+          <cylinderGeometry args={[0.05, 0.07, 0.04, 12]} />
+          <meshStandardMaterial color="#05050a" metalness={0.6} roughness={0.3} />
+        </mesh>
+        <mesh position={[0, 0.14, 0]}>
+          <cylinderGeometry args={[0.022, 0.022, 0.28, 10]} />
+          <meshStandardMaterial color="#2a2a34" metalness={0.7} roughness={0.4} />
+        </mesh>
+        <mesh position={[0, 0.32, 0]}>
+          <sphereGeometry args={[0.07, 14, 14]} />
+          <meshStandardMaterial color="#ff3030" metalness={0.4} roughness={0.35} emissive="#ff1010" emissiveIntensity={0.35} />
+        </mesh>
+      </group>
+
+      {/* Action buttons — 4 in a square around the right half of the deck */}
+      {[
+        { x: 0.12, z: 0.35, c: "#ff5050" },
+        { x: 0.34, z: 0.4, c: "#50c0ff" },
+        { x: 0.18, z: 0.55, c: "#ffd040" },
+        { x: 0.4, z: 0.55, c: "#50ff90" },
+      ].map((btn, i) => (
+        <mesh
+          key={i}
+          position={[btn.x, -0.2, D / 2 + btn.z]}
+          rotation={[-Math.PI / 7, 0, 0]}
+        >
+          <cylinderGeometry args={[0.055, 0.055, 0.04, 14]} />
+          <meshStandardMaterial
+            color={btn.c}
+            metalness={0.3}
+            roughness={0.35}
+            emissive={btn.c}
+            emissiveIntensity={0.6}
+            toneMapped={false}
+          />
+        </mesh>
+      ))}
+
+      {/* Coin slot — subtle strip below the control deck */}
+      <mesh position={[0, -0.85, D / 2 + 0.01]}>
+        <boxGeometry args={[W * 0.4, 0.08, 0.01]} />
+        <meshStandardMaterial color="#05050a" metalness={0.4} roughness={0.5} />
+      </mesh>
+    </group>
+  );
 }
 
 function Planet({
@@ -2563,6 +2960,10 @@ export function CoalScene({
         <directionalLight position={[8, 4, 6]} intensity={0.7} color="#e0e6ff" />
         <pointLight position={[0, 0, 4]} intensity={1.0} color="#aa80ff" distance={14} />
         <fog attach="fog" args={["#02030a", 16, 38]} />
+
+        {/* Mouse-driven wind — updates the module-scope WIND ref every
+            frame. Every nebula reads from it to drift in response. */}
+        <WindDriver />
 
         {/* === STAGED SPAWN-IN on mount (for seamless Studio→Work arrival) ===
             Each layer fades in at its own delay so stars appear first,
