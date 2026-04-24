@@ -3,20 +3,17 @@
 /**
  * "Contact" route — interactive 3D phone.
  *
- * An old-school push-button phone sits on a dark desk, lit from above by a
- * single spotlight. The user can click the 12 keypad buttons to dial; if
- * they dial the secret number on the post-it note (`555-FAB3` → 5553223)
- * an alien voice comes through the earpiece. The contact form lives as a
- * 2D overlay on the left side of the page — this canvas is only the right
- * half.
+ * Old-school push-button phone on a dark desk, lit from above by a single
+ * warm spotlight. Click the handset to pick it up, click the keypad to
+ * dial. If the user dials the number on the post-it (`5553223` = 555-FAB3)
+ * with the handset lifted, an alien voice plays through the earpiece.
  *
- * Geometry is intentionally built from primitives (no external models) so
- * we stay fast and can tune it inline. The handset is tethered to the base
- * by a coiled cable (TubeGeometry along a spring curve).
+ * All text (keypad digits, LCD readout, post-it) uses drei <Text> so it
+ * renders as real 3D geometry — no HTML overlay weirdness.
  */
 
-import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
-import { Html } from "@react-three/drei";
+import { Canvas, useFrame, type ThreeEvent } from "@react-three/fiber";
+import { Text } from "@react-three/drei";
 import {
   Suspense,
   useCallback,
@@ -30,7 +27,6 @@ import { playSound } from "@/lib/sound";
 
 const SECRET_NUMBER = "5553223"; // 555-FAB3 on the keypad
 
-// Keypad layout (rows of 3). Letters shown under digits like a real phone.
 const KEYS: { digit: string; letters: string }[] = [
   { digit: "1", letters: "" },
   { digit: "2", letters: "ABC" },
@@ -47,146 +43,127 @@ const KEYS: { digit: string; letters: string }[] = [
 ];
 
 // -----------------------------------------------------------------------------
-// Desk surface — matte black with subtle noise, grounds the phone.
+// Desk surface
 // -----------------------------------------------------------------------------
 
 function Desk() {
   return (
-    <mesh position={[0, -0.01, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+    <mesh position={[0, -0.005, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
       <planeGeometry args={[40, 40]} />
-      <meshStandardMaterial color="#0a0a10" roughness={0.95} metalness={0.05} />
+      <meshStandardMaterial color="#0a0b12" roughness={0.92} metalness={0.08} />
     </mesh>
   );
 }
 
 // -----------------------------------------------------------------------------
-// Phone base — rectangular body + cradle for the handset + keypad + display.
+// Phone body — slab base + cradle humps + LCD + brand + speaker dots
 // -----------------------------------------------------------------------------
 
-function PhoneBody({
-  onKeyPress,
-  dialed,
-}: {
-  onKeyPress: (d: string) => void;
-  dialed: string;
-}) {
-  const bodyColor = "#18181c";
-  const plateColor = "#0d0d10";
-  const keyColor = "#e8e8ec";
-  const keyTopColor = "#f4f4f8";
+function PhoneBody({ dialed }: { dialed: string }) {
+  const bodyColor = "#181822";
+  const plateColor = "#0d0d14";
   return (
     <group position={[0, 0, 0]}>
-      {/* Base — slightly wedge-shaped, wider at the back */}
-      <mesh position={[0, 0.25, 0]} castShadow receiveShadow>
-        <boxGeometry args={[2.6, 0.5, 3.6]} />
+      {/* Base slab — wedge-ish */}
+      <mesh position={[0, 0.22, 0]} castShadow receiveShadow>
+        <boxGeometry args={[2.6, 0.44, 3.6]} />
         <meshStandardMaterial color={bodyColor} metalness={0.35} roughness={0.45} />
       </mesh>
-      {/* Top bevel */}
-      <mesh position={[0, 0.51, 0]} castShadow>
-        <boxGeometry args={[2.5, 0.03, 3.5]} />
-        <meshStandardMaterial color={plateColor} metalness={0.4} roughness={0.35} />
+      {/* Top inset plate where the keypad sits */}
+      <mesh position={[0, 0.451, 0.2]} castShadow>
+        <boxGeometry args={[2.3, 0.02, 2.5]} />
+        <meshStandardMaterial color={plateColor} metalness={0.4} roughness={0.4} />
       </mesh>
 
-      {/* Handset cradle at the back — two raised humps */}
-      <mesh position={[-0.75, 0.58, -1.3]} castShadow>
-        <cylinderGeometry args={[0.22, 0.26, 0.16, 18]} />
+      {/* Cradle humps at the back */}
+      <mesh position={[-0.88, 0.52, -1.3]} castShadow>
+        <cylinderGeometry args={[0.22, 0.26, 0.18, 20]} />
         <meshStandardMaterial color={plateColor} metalness={0.5} roughness={0.35} />
       </mesh>
-      <mesh position={[0.75, 0.58, -1.3]} castShadow>
-        <cylinderGeometry args={[0.22, 0.26, 0.16, 18]} />
+      <mesh position={[0.88, 0.52, -1.3]} castShadow>
+        <cylinderGeometry args={[0.22, 0.26, 0.18, 20]} />
         <meshStandardMaterial color={plateColor} metalness={0.5} roughness={0.35} />
       </mesh>
 
-      {/* LCD readout strip above the keypad */}
-      <LCDDisplay dialed={dialed} position={[0, 0.525, -0.35]} />
+      {/* LCD strip */}
+      <LCDDisplay dialed={dialed} />
 
-      {/* Keypad grid */}
-      <Keypad onKeyPress={onKeyPress} keyColor={keyColor} topColor={keyTopColor} />
-
-      {/* Speaker grille dots on the front face */}
-      <group position={[0, 0.25, 1.82]}>
-        {Array.from({ length: 6 }).map((_, i) => (
-          <mesh key={i} position={[(i - 2.5) * 0.18, 0, 0]}>
-            <cylinderGeometry args={[0.04, 0.04, 0.02, 10]} />
-            <meshStandardMaterial color="#05050a" metalness={0.2} roughness={0.9} />
+      {/* Front face speaker grille dots */}
+      <group position={[0, 0.22, 1.82]}>
+        {Array.from({ length: 7 }).map((_, i) => (
+          <mesh key={i} position={[(i - 3) * 0.16, 0, 0]}>
+            <cylinderGeometry args={[0.035, 0.035, 0.02, 10]} />
+            <meshStandardMaterial color="#04040a" metalness={0.2} roughness={0.9} />
           </mesh>
         ))}
       </group>
 
-      {/* Brand plate — "FABRIQUE" embossed on the front */}
-      <Html
-        position={[0, 0.25, 1.81]}
-        center
-        distanceFactor={6}
-        transform
-        occlude="blending"
-        wrapperClass="phone-brand-plate"
+      {/* FABRIQUE brand on the front face, small and subtle */}
+      <Text
+        position={[0, 0.22, 1.815]}
+        fontSize={0.08}
+        color="#4a5568"
+        letterSpacing={0.3}
+        anchorX="center"
+        anchorY="middle"
       >
-        <div className="phone-brand">FABRIQUE</div>
-      </Html>
+        FABRIQUE
+      </Text>
     </group>
   );
 }
 
 // -----------------------------------------------------------------------------
-// LCD display — green-on-black panel, shows the dialed digits.
+// LCD — green Courier readout above the keypad
 // -----------------------------------------------------------------------------
 
-function LCDDisplay({
-  dialed,
-  position,
-}: {
-  dialed: string;
-  position: [number, number, number];
-}) {
+function LCDDisplay({ dialed }: { dialed: string }) {
   return (
-    <group position={position}>
+    <group position={[0, 0.462, -0.7]}>
       {/* Bezel */}
       <mesh>
-        <boxGeometry args={[1.9, 0.02, 0.4]} />
-        <meshStandardMaterial color="#05050a" metalness={0.5} roughness={0.4} />
+        <boxGeometry args={[1.9, 0.03, 0.42]} />
+        <meshStandardMaterial color="#04040a" metalness={0.5} roughness={0.4} />
       </mesh>
       {/* Glass */}
-      <mesh position={[0, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh position={[0, 0.016, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[1.75, 0.3]} />
-        <meshBasicMaterial color="#0a2a0e" toneMapped={false} />
+        <meshStandardMaterial
+          color="#082208"
+          emissive="#0a280a"
+          emissiveIntensity={0.6}
+          metalness={0.1}
+          roughness={0.2}
+        />
       </mesh>
-      {/* Dialed digits — drei Html for crisp text that scales with distance */}
-      <Html
-        position={[0, 0.014, 0]}
+      <Text
+        position={[0, 0.018, 0]}
         rotation={[-Math.PI / 2, 0, 0]}
-        transform
-        occlude="blending"
-        distanceFactor={2.2}
-        wrapperClass="phone-lcd"
-        pointerEvents="none"
+        fontSize={0.16}
+        color="#a0ffa0"
+        letterSpacing={0.12}
+        anchorX="center"
+        anchorY="middle"
+        font={undefined}
+        outlineWidth={0}
       >
-        <div className="phone-lcd-text">{dialed || "——————"}</div>
-      </Html>
+        {dialed || "— — — — — — —"}
+      </Text>
     </group>
   );
 }
 
 // -----------------------------------------------------------------------------
-// Keypad — 4x3 grid of clickable keys. Each key has its own small press
-// animation (Y dip) when clicked.
+// Keypad — 4×3 clickable key grid. Each key dips on press.
 // -----------------------------------------------------------------------------
 
-function Keypad({
-  onKeyPress,
-  keyColor,
-  topColor,
-}: {
-  onKeyPress: (d: string) => void;
-  keyColor: string;
-  topColor: string;
-}) {
+function Keypad({ onKeyPress }: { onKeyPress: (d: string) => void }) {
   const COLS = 3;
   const ROWS = 4;
-  const SPACING_X = 0.55;
-  const SPACING_Z = 0.55;
+  const SPACING_X = 0.5;
+  const SPACING_Z = 0.45;
   const originX = -((COLS - 1) * SPACING_X) / 2;
-  const originZ = -((ROWS - 1) * SPACING_Z) / 2 + 0.3;
+  const originZ = -((ROWS - 1) * SPACING_Z) / 2 + 0.35;
   return (
     <group>
       {KEYS.map((k, i) => {
@@ -199,12 +176,10 @@ function Keypad({
             letters={k.letters}
             position={[
               originX + col * SPACING_X,
-              0.53,
+              0.48,
               originZ + row * SPACING_Z,
             ]}
             onPress={() => onKeyPress(k.digit)}
-            baseColor={keyColor}
-            topColor={topColor}
           />
         );
       })}
@@ -217,15 +192,11 @@ function Key({
   letters,
   position,
   onPress,
-  baseColor,
-  topColor,
 }: {
   digit: string;
   letters: string;
   position: [number, number, number];
   onPress: () => void;
-  baseColor: string;
-  topColor: string;
 }) {
   const ref = useRef<THREE.Group>(null);
   const pressed = useRef(0);
@@ -234,8 +205,13 @@ function Key({
   useFrame((_, delta) => {
     if (!ref.current) return;
     pressed.current = Math.max(0, pressed.current - delta * 5);
-    const targetY = position[1] - pressed.current * 0.08;
-    ref.current.position.y = THREE.MathUtils.damp(ref.current.position.y, targetY, 18, delta);
+    const targetY = position[1] - pressed.current * 0.06;
+    ref.current.position.y = THREE.MathUtils.damp(
+      ref.current.position.y,
+      targetY,
+      20,
+      delta,
+    );
   });
 
   const handlePress = (e: ThreeEvent<PointerEvent>) => {
@@ -246,7 +222,7 @@ function Key({
 
   return (
     <group ref={ref} position={position}>
-      {/* Clickable cap */}
+      {/* Cap */}
       <mesh
         castShadow
         onPointerDown={handlePress}
@@ -260,35 +236,47 @@ function Key({
           document.body.style.cursor = "";
         }}
       >
-        <boxGeometry args={[0.42, 0.15, 0.42]} />
+        <boxGeometry args={[0.38, 0.12, 0.34]} />
         <meshStandardMaterial
-          color={hovered ? topColor : baseColor}
-          metalness={0.15}
+          color={hovered ? "#ffffff" : "#ececf2"}
+          metalness={0.1}
           roughness={0.4}
-          emissive={hovered ? "#303040" : "#000000"}
-          emissiveIntensity={hovered ? 0.3 : 0}
+          emissive={hovered ? "#6080a0" : "#000"}
+          emissiveIntensity={hovered ? 0.35 : 0}
         />
       </mesh>
-      {/* Digit label etched on top */}
-      <Html
-        position={[0, 0.082, 0]}
+      {/* Digit — 3D text above the cap */}
+      <Text
+        position={[0, 0.064, -0.02]}
         rotation={[-Math.PI / 2, 0, 0]}
-        transform
-        occlude="blending"
-        distanceFactor={2.2}
-        wrapperClass="phone-key-label"
-        pointerEvents="none"
+        fontSize={0.12}
+        color="#111116"
+        anchorX="center"
+        anchorY="middle"
+        fontWeight={700}
       >
-        <div className="phone-key-digit">{digit}</div>
-        {letters && <div className="phone-key-letters">{letters}</div>}
-      </Html>
+        {digit}
+      </Text>
+      {/* Letters below digit */}
+      {letters && (
+        <Text
+          position={[0, 0.064, 0.08]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          fontSize={0.042}
+          color="#4a4a54"
+          letterSpacing={0.06}
+          anchorX="center"
+          anchorY="middle"
+        >
+          {letters}
+        </Text>
+      )}
     </group>
   );
 }
 
 // -----------------------------------------------------------------------------
-// Handset — earpiece + mouthpiece cylinder, connected to the base by a
-// coiled cable. It sits "cradled" on the base by default, wiggling slightly.
+// Handset — earpiece + mouthpiece + handle. Toggles between cradle and lift.
 // -----------------------------------------------------------------------------
 
 function Handset({
@@ -300,44 +288,42 @@ function Handset({
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const [hovered, setHovered] = useState(false);
-  // Cradle position vs lifted position. When lifted, it hovers higher and
-  // rotates slightly as if held in hand.
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, delta) => {
     if (!groupRef.current) return;
     const t = clock.elapsedTime;
-    const targetY = lifted ? 0.95 : 0.62;
-    const targetRx = lifted ? -0.5 + Math.sin(t * 2) * 0.02 : 0;
-    const targetRz = lifted ? 0.1 : 0;
-    const targetZ = lifted ? -1.05 : -1.3;
+    const targetY = lifted ? 1.05 : 0.58;
+    const targetZ = lifted ? -0.7 : -1.3;
+    const targetRx = lifted ? -0.4 + Math.sin(t * 1.6) * 0.015 : 0;
+    const targetRz = lifted ? 0.18 : 0;
     groupRef.current.position.y = THREE.MathUtils.damp(
       groupRef.current.position.y,
-      targetY + Math.sin(t * 1.4) * (lifted ? 0.02 : 0),
-      4,
-      0.016,
+      targetY + (lifted ? Math.sin(t * 1.3) * 0.015 : 0),
+      5,
+      delta,
     );
     groupRef.current.position.z = THREE.MathUtils.damp(
       groupRef.current.position.z,
       targetZ,
-      4,
-      0.016,
+      5,
+      delta,
     );
     groupRef.current.rotation.x = THREE.MathUtils.damp(
       groupRef.current.rotation.x,
       targetRx,
-      4,
-      0.016,
+      5,
+      delta,
     );
     groupRef.current.rotation.z = THREE.MathUtils.damp(
       groupRef.current.rotation.z,
       targetRz,
-      4,
-      0.016,
+      5,
+      delta,
     );
   });
   return (
     <group
       ref={groupRef}
-      position={[0, 0.62, -1.3]}
+      position={[0, 0.58, -1.3]}
       onClick={(e) => {
         e.stopPropagation();
         onToggle();
@@ -352,71 +338,81 @@ function Handset({
         document.body.style.cursor = "";
       }}
     >
-      {/* Handle bar — cylinder between the two cradle humps */}
+      {/* Handle shaft */}
       <mesh rotation={[0, 0, Math.PI / 2]} castShadow>
-        <cylinderGeometry args={[0.14, 0.14, 1.7, 16]} />
+        <cylinderGeometry args={[0.11, 0.11, 1.7, 18]} />
         <meshStandardMaterial
-          color={hovered ? "#2a2a32" : "#18181c"}
-          metalness={0.4}
-          roughness={0.35}
-          emissive={hovered ? "#101018" : "#000"}
-          emissiveIntensity={hovered ? 0.4 : 0}
+          color={hovered ? "#28283a" : "#16161e"}
+          metalness={0.35}
+          roughness={0.4}
+          emissive={hovered ? "#0a0a18" : "#000"}
+          emissiveIntensity={hovered ? 0.6 : 0}
         />
       </mesh>
-      {/* Earpiece bell (left) */}
-      <mesh position={[-0.85, 0, 0]} castShadow>
-        <sphereGeometry args={[0.24, 20, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
-        <meshStandardMaterial color="#18181c" metalness={0.3} roughness={0.45} />
-      </mesh>
-      {/* Earpiece grille */}
-      <mesh position={[-0.85, 0.17, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.16, 18]} />
-        <meshStandardMaterial color="#05050a" metalness={0.2} roughness={0.9} />
-      </mesh>
-      {/* Mouthpiece bell (right) */}
-      <mesh position={[0.85, 0, 0]} rotation={[0, 0, Math.PI]} castShadow>
-        <sphereGeometry args={[0.22, 20, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
-        <meshStandardMaterial color="#18181c" metalness={0.3} roughness={0.45} />
-      </mesh>
-      {/* Mouthpiece grille */}
-      <mesh position={[0.85, -0.15, 0]} rotation={[Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.14, 18]} />
-        <meshStandardMaterial color="#05050a" metalness={0.2} roughness={0.9} />
-      </mesh>
+      {/* Earpiece bell (left end) */}
+      <group position={[-0.85, 0, 0]}>
+        <mesh castShadow>
+          <sphereGeometry
+            args={[0.22, 22, 16, 0, Math.PI * 2, 0, Math.PI * 0.55]}
+          />
+          <meshStandardMaterial
+            color={hovered ? "#20202e" : "#14141c"}
+            metalness={0.3}
+            roughness={0.45}
+          />
+        </mesh>
+        <mesh position={[0, 0.115, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[0.14, 18]} />
+          <meshStandardMaterial color="#04040a" metalness={0.2} roughness={0.9} />
+        </mesh>
+      </group>
+      {/* Mouthpiece bell (right end) */}
+      <group position={[0.85, 0, 0]} rotation={[0, 0, Math.PI]}>
+        <mesh castShadow>
+          <sphereGeometry
+            args={[0.2, 22, 16, 0, Math.PI * 2, 0, Math.PI * 0.55]}
+          />
+          <meshStandardMaterial
+            color={hovered ? "#20202e" : "#14141c"}
+            metalness={0.3}
+            roughness={0.45}
+          />
+        </mesh>
+        <mesh position={[0, 0.105, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[0.12, 18]} />
+          <meshStandardMaterial color="#04040a" metalness={0.2} roughness={0.9} />
+        </mesh>
+      </group>
     </group>
   );
 }
 
 // -----------------------------------------------------------------------------
-// Cable — coiled tube between base and handset. Simple helical curve.
+// Cable — coiled tube, endpoints track the handset state
 // -----------------------------------------------------------------------------
 
 function PhoneCable({ lifted }: { lifted: boolean }) {
   const curve = useMemo(() => {
-    // Helix from base-right-side (0.9, 0.3, -0.4) down-sag to floor and up
-    // to the handset mouthpiece. Lifted/cradled positions slightly change
-    // the endpoint so the cable doesn't pass through the handset.
     const pts: THREE.Vector3[] = [];
-    const turns = 8;
-    const segPerTurn = 14;
-    const coilRadius = 0.13;
+    const turns = 10;
+    const segPerTurn = 16;
+    const coilR = 0.1;
+    const endY = lifted ? 1.05 : 0.58;
+    const endZ = lifted ? -0.7 : -1.3;
     for (let i = 0; i <= turns * segPerTurn; i++) {
       const t = i / (turns * segPerTurn);
       const theta = t * turns * Math.PI * 2;
-      // Follow a sag curve from base anchor (1.2, 0.3, 0.5) to handset end
-      // (-0.85, 0.6, -1.3). Sag midpoint dips to (0.2, 0.05, -0.4).
-      const bezier = (a: number, b: number, c: number) =>
-        (1 - t) * (1 - t) * a + 2 * (1 - t) * t * b + t * t * c;
-      const endY = lifted ? 0.95 : 0.62;
-      const endZ = lifted ? -1.05 : -1.3;
-      const cx = bezier(1.2, 0.2, -0.85);
-      const cy = bezier(0.3, 0.05, endY);
-      const cz = bezier(0.5, -0.4, endZ);
+      // Bezier sag from base-right to handset end
+      const bx = (1 - t) * (1 - t) * 1.35 + 2 * (1 - t) * t * 0.25 + t * t * -0.9;
+      const by =
+        (1 - t) * (1 - t) * 0.2 + 2 * (1 - t) * t * 0.02 + t * t * endY;
+      const bz =
+        (1 - t) * (1 - t) * 0.6 + 2 * (1 - t) * t * -0.3 + t * t * endZ;
       pts.push(
         new THREE.Vector3(
-          cx + Math.cos(theta) * coilRadius,
-          cy + Math.sin(theta) * coilRadius * 0.5,
-          cz + Math.sin(theta) * coilRadius,
+          bx + Math.cos(theta) * coilR,
+          by + Math.sin(theta) * coilR * 0.6,
+          bz + Math.sin(theta) * coilR,
         ),
       );
     }
@@ -424,95 +420,99 @@ function PhoneCable({ lifted }: { lifted: boolean }) {
   }, [lifted]);
   return (
     <mesh>
-      <tubeGeometry args={[curve, 220, 0.03, 6, false]} />
-      <meshStandardMaterial color="#0e0e12" metalness={0.25} roughness={0.6} />
+      <tubeGeometry args={[curve, 260, 0.028, 8, false]} />
+      <meshStandardMaterial color="#0e0e14" metalness={0.25} roughness={0.55} />
     </mesh>
   );
 }
 
 // -----------------------------------------------------------------------------
-// Post-it note — stuck to the right side of the phone base with the secret
-// number scrawled on it. Slightly tilted for charm.
+// Post-it — yellow sticky with the secret number in a handwritten-ish font
 // -----------------------------------------------------------------------------
 
 function PostIt({ secret }: { secret: string }) {
+  const formatted = `${secret.slice(0, 3)}-${secret.slice(3)}`;
   return (
-    <group position={[1.5, 0.02, 0.9]} rotation={[-Math.PI / 2, 0, -0.12]}>
-      <mesh>
-        <planeGeometry args={[0.9, 0.9]} />
-        <meshStandardMaterial color="#ffe066" roughness={0.95} metalness={0} />
+    <group position={[2.0, 0.012, 1.0]} rotation={[-Math.PI / 2, 0, -0.18]}>
+      {/* Paper */}
+      <mesh receiveShadow>
+        <planeGeometry args={[1.0, 1.0]} />
+        <meshStandardMaterial
+          color="#ffe066"
+          roughness={0.95}
+          metalness={0}
+          side={THREE.DoubleSide}
+        />
       </mesh>
-      <Html
-        position={[0, 0, 0.005]}
-        transform
-        occlude="blending"
-        distanceFactor={2.2}
-        wrapperClass="phone-postit"
-        pointerEvents="none"
+      <Text
+        position={[0, 0.28, 0.003]}
+        fontSize={0.1}
+        color="#3a2a00"
+        anchorX="center"
+        anchorY="middle"
+        letterSpacing={0.08}
       >
-        <div className="phone-postit-inner">
-          <div className="phone-postit-label">CALL</div>
-          <div className="phone-postit-num">{secret}</div>
-        </div>
-      </Html>
+        CALL
+      </Text>
+      <Text
+        position={[0, 0.02, 0.003]}
+        fontSize={0.22}
+        color="#2a1a00"
+        fontWeight={700}
+        anchorX="center"
+        anchorY="middle"
+      >
+        {formatted}
+      </Text>
+      <Text
+        position={[0, -0.26, 0.003]}
+        fontSize={0.07}
+        color="#5a3a00"
+        anchorX="center"
+        anchorY="middle"
+        letterSpacing={0.2}
+      >
+        pick up handset
+      </Text>
     </group>
   );
 }
 
 // -----------------------------------------------------------------------------
-// Spotlight rig — single cone of warm light from above the phone, plus a
-// very dim ambient fill so the rest of the desk isn't pitch black.
+// Lighting
 // -----------------------------------------------------------------------------
 
 function LightRig() {
-  const spot = useRef<THREE.SpotLight>(null);
+  const spotRef = useRef<THREE.SpotLight>(null);
+  const targetRef = useRef<THREE.Object3D>(null);
   useEffect(() => {
-    if (spot.current) {
-      spot.current.target.position.set(0, 0, 0);
-      spot.current.target.updateMatrixWorld();
+    if (spotRef.current && targetRef.current) {
+      spotRef.current.target = targetRef.current;
     }
   }, []);
   return (
     <>
-      <ambientLight intensity={0.08} color="#405068" />
+      <ambientLight intensity={0.06} color="#405068" />
+      {/* Warm spotlight from above */}
       <spotLight
-        ref={spot}
-        position={[0, 6, 0.5]}
-        angle={0.45}
-        penumbra={0.7}
-        intensity={80}
+        ref={spotRef}
+        position={[0, 5.5, 0.4]}
+        angle={0.42}
+        penumbra={0.55}
+        intensity={90}
         distance={14}
         decay={2}
-        color="#fff0d8"
+        color="#ffe8c0"
         castShadow
         shadow-mapSize-width={1024}
         shadow-mapSize-height={1024}
       />
-      {/* Edge rim light from behind so the handset reads against the dark */}
-      <pointLight position={[-2, 2, -3]} color="#4080ff" intensity={0.5} distance={8} />
+      <object3D ref={targetRef} position={[0, 0, 0]} />
+      {/* Cool rim light from the left behind the phone, for separation */}
+      <pointLight position={[-3, 2.5, -2.5]} color="#4080ff" intensity={0.6} distance={9} />
+      {/* Subtle warm accent on the post-it side */}
+      <pointLight position={[2.5, 1.2, 1.5]} color="#ffd070" intensity={0.25} distance={4} />
     </>
-  );
-}
-
-// -----------------------------------------------------------------------------
-// Visible cone-of-light — a translucent cone mesh that shows the spotlight
-// beam descending through the air. Dust motes optional.
-// -----------------------------------------------------------------------------
-
-function VisibleLightCone() {
-  return (
-    <mesh position={[0, 3, 0.5]} rotation={[Math.PI, 0, 0]}>
-      <coneGeometry args={[2.4, 6, 28, 1, true]} />
-      <meshBasicMaterial
-        color="#fff0d0"
-        transparent
-        opacity={0.04}
-        blending={THREE.AdditiveBlending}
-        side={THREE.DoubleSide}
-        depthWrite={false}
-        toneMapped={false}
-      />
-    </mesh>
   );
 }
 
@@ -529,12 +529,9 @@ export function PhoneScene() {
     (d: string) => {
       playSound("phone-key", 0.7);
       setDialed((prev) => {
-        // Only digits register on the "dialed" display. Cap at 10 chars.
         if (!/[0-9]/.test(d)) return prev;
         const next = (prev + d).slice(-10);
-        // Check for secret match on this keystroke.
         if (next.endsWith(SECRET_NUMBER) && lifted) {
-          // Trigger alien response after a short pause.
           if (alienTimer.current) window.clearTimeout(alienTimer.current);
           alienTimer.current = window.setTimeout(() => {
             playSound("alien", 1);
@@ -549,10 +546,8 @@ export function PhoneScene() {
   const onToggleHandset = useCallback(() => {
     setLifted((v) => {
       if (!v) {
-        // Picking up → dial tone.
-        playSound("phone-dial", 0.5);
+        playSound("phone-dial", 0.55);
       } else {
-        // Hanging up → click + clear dialed display.
         playSound("phone-hang", 0.6);
         setDialed("");
       }
@@ -568,20 +563,22 @@ export function PhoneScene() {
 
   return (
     <Canvas
-      camera={{ position: [0, 2.4, 5.2], fov: 40 }}
+      // Pulled back + up for a desk-view angle that shows the whole phone
+      // and its post-it, with room above for the spotlight beam.
+      camera={{ position: [0.5, 4.8, 7.5], fov: 32 }}
       shadows
       gl={{ antialias: true, alpha: true }}
       style={{ width: "100%", height: "100%" }}
+      onCreated={({ camera }) => camera.lookAt(0, 0.4, 0)}
     >
       <Suspense fallback={null}>
         <color attach="background" args={["#02030a"]} />
-        <fog attach="fog" args={["#02030a", 6, 18]} />
+        <fog attach="fog" args={["#02030a", 9, 22]} />
 
         <LightRig />
-        <VisibleLightCone />
         <Desk />
-
-        <PhoneBody onKeyPress={onKeyPress} dialed={dialed} />
+        <PhoneBody dialed={dialed} />
+        <Keypad onKeyPress={onKeyPress} />
         <Handset lifted={lifted} onToggle={onToggleHandset} />
         <PhoneCable lifted={lifted} />
         <PostIt secret={SECRET_NUMBER} />
