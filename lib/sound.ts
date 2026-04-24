@@ -33,7 +33,8 @@ export type SoundName =
   | "crt-off"     // collapse-to-dot descent
   | "type-key"    // keyboard tick
   | "win98-click" // OK button click
-  | "win98-ding"; // 3-note success stinger
+  | "win98-ding"  // 3-note success stinger
+  | "flicker";    // short electrical crackle — fluorescent/CRT flicker
 
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
@@ -215,6 +216,128 @@ export function stopAmbient() {
   if (!ambient) return;
   ambient.stop();
   ambient = null;
+}
+
+// -----------------------------------------------------------------------------
+// Looped voices — keep nodes around so we can retune volume every frame
+// -----------------------------------------------------------------------------
+
+type LoopHandle = {
+  gain: GainNode;
+  stop: () => void;
+};
+const loops: Record<string, LoopHandle | null> = {};
+
+/** Start (or return existing) CRT hum loop. Call once; use setLoopVolume
+    to modulate gain based on camera distance. Idempotent. */
+export function startLoop(name: "contact-ambient" | "contact-crt-hum"): LoopHandle | null {
+  const c = ensureContext();
+  if (!c || !masterGain) return null;
+  if (loops[name]) return loops[name];
+  if (name === "contact-ambient") {
+    // Low drone — two detuned sines way below the ear's sensitivity peak,
+    // plus a slow-drift lowpass filter wobble, plus faint pink-ish noise.
+    const bus = c.createGain();
+    bus.gain.value = 0.25;
+    bus.connect(masterGain);
+    const lp = c.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 320;
+    lp.Q.value = 0.6;
+    lp.connect(bus);
+    const lfo = c.createOscillator();
+    lfo.frequency.value = 0.08;
+    const lfoGain = c.createGain();
+    lfoGain.gain.value = 80;
+    lfo.connect(lfoGain).connect(lp.frequency);
+    lfo.start();
+    const o1 = c.createOscillator();
+    o1.type = "sine";
+    o1.frequency.value = 48;
+    const o2 = c.createOscillator();
+    o2.type = "sine";
+    o2.frequency.value = 51;
+    const og = c.createGain();
+    og.gain.value = 0.55;
+    o1.connect(og); o2.connect(og); og.connect(lp);
+    o1.start(); o2.start();
+    // Brown-ish noise for room tone
+    const nb = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
+    const nd = nb.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < nd.length; i++) {
+      const white = Math.random() * 2 - 1;
+      last = (last + 0.02 * white) / 1.02;
+      nd[i] = last * 3;
+    }
+    const ns = c.createBufferSource();
+    ns.buffer = nb;
+    ns.loop = true;
+    const ng = c.createGain();
+    ng.gain.value = 0.1;
+    ns.connect(ng).connect(lp);
+    ns.start();
+    const handle: LoopHandle = {
+      gain: bus,
+      stop: () => {
+        try { o1.stop(); o2.stop(); lfo.stop(); ns.stop(); } catch {}
+      },
+    };
+    loops[name] = handle;
+    return handle;
+  }
+  if (name === "contact-crt-hum") {
+    // Electrical CRT hum — 60 Hz drone + high-pitched flyback whine at
+    // ~15.7 kHz. Volume modulated externally based on camera proximity.
+    const bus = c.createGain();
+    bus.gain.value = 0;
+    bus.connect(masterGain);
+    const o1 = c.createOscillator();
+    o1.type = "sine";
+    o1.frequency.value = 60;
+    const og1 = c.createGain();
+    og1.gain.value = 0.4;
+    o1.connect(og1).connect(bus);
+    o1.start();
+    // High flyback whine — classic CRT signature. Soft so it doesn't
+    // fatigue immediately; bandpass clean.
+    const o2 = c.createOscillator();
+    o2.type = "sine";
+    o2.frequency.value = 15734; // NTSC horizontal frequency
+    const bp = c.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 15734;
+    bp.Q.value = 5;
+    const og2 = c.createGain();
+    og2.gain.value = 0.06;
+    o2.connect(bp).connect(og2).connect(bus);
+    o2.start();
+    const handle: LoopHandle = {
+      gain: bus,
+      stop: () => {
+        try { o1.stop(); o2.stop(); } catch {}
+      },
+    };
+    loops[name] = handle;
+    return handle;
+  }
+  return null;
+}
+
+export function setLoopVolume(
+  name: "contact-ambient" | "contact-crt-hum",
+  v: number,
+) {
+  const h = loops[name];
+  if (!h) return;
+  h.gain.gain.value = Math.max(0, Math.min(1, v));
+}
+
+export function stopLoop(name: "contact-ambient" | "contact-crt-hum") {
+  const h = loops[name];
+  if (!h) return;
+  h.stop();
+  loops[name] = null;
 }
 
 /** Fire-and-forget play. Safe to call in render/effect hot paths. */
@@ -596,6 +719,37 @@ export function playSound(name: SoundName, volume = 1) {
       ns.connect(bp).connect(g).connect(masterGain);
       ns.start(now);
       ns.stop(now + dur);
+      break;
+    }
+    case "flicker": {
+      // Short electrical crackle — bursts of filtered noise with a sharp
+      // descending pitch. Signature dying-fluorescent sound.
+      const dur = 0.22;
+      const nb = c.createBuffer(1, c.sampleRate * dur, c.sampleRate);
+      const nd = nb.getChannelData(0);
+      for (let i = 0; i < nd.length; i++) {
+        const t = i / c.sampleRate;
+        // Three quick bursts across the duration
+        const env = Math.max(
+          0,
+          Math.sin(t * 40) * Math.exp(-t * 12) +
+            Math.sin(t * 90) * Math.exp(-(t - 0.08) * 18) +
+            Math.sin(t * 120) * Math.exp(-(t - 0.14) * 22),
+        );
+        nd[i] = (Math.random() * 2 - 1) * env;
+      }
+      const ns = c.createBufferSource();
+      ns.buffer = nb;
+      const bp = c.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.setValueAtTime(3200, now);
+      bp.frequency.exponentialRampToValueAtTime(800, now + dur);
+      bp.Q.value = 3;
+      const g = c.createGain();
+      g.gain.value = v * 0.55;
+      ns.connect(bp).connect(g).connect(masterGain);
+      ns.start(now);
+      ns.stop(now + dur + 0.02);
       break;
     }
     case "win98-ding": {

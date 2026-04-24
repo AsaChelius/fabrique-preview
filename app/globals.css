@@ -726,11 +726,8 @@ body {
   background: #020205;
 }
 
-/* Wrapper drei gives us — keep it click-through at the edges so only
-   the form controls inside get interaction. */
-.crt-html {
-  pointer-events: none;
-}
+/* drei <Html> wrapper — let its `pointerEvents` prop decide; no global
+   override (previously blocked all clicks in overview AND form state). */
 
 /* The CRT screen "page" — always-on Win98 canvas. 4:3-ish aspect to
    match the CRT bezel. */
