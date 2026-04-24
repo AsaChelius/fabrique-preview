@@ -33,11 +33,11 @@ import type { ContactFormData, ContactFormResponse } from "@/types/contact";
 
 type View = "overview" | "computer";
 type ScreenState = "boot" | "loading" | "form";
-const TABLE_TOP_Y = 2.25;
-// Ground drops BELOW y=0 so the setup "hangs" higher in frame without
-// moving the camera. Table legs stretch to reach this new floor; the
-// spotlight beam extends down to it too.
-const GROUND_Y = -1.4;
+// Table lowered so the CRT sits at camera look-at (y≈1.8) — the whole
+// setup reads as centered on screen, not towering above frame-middle.
+// Ground pulled up so the legs are a normal height (not stretched).
+const TABLE_TOP_Y = 1.3;
+const GROUND_Y = -0.3;
 
 // -----------------------------------------------------------------------------
 // Wooden table — visible structure (legs, apron, grain). Replaces the plinth.
@@ -177,9 +177,83 @@ function WoodenTable() {
 }
 
 // -----------------------------------------------------------------------------
-// CRT Monitor — beige chunky 90s style. Rounded front bezel + recessed
-// screen + ventilation slits on top + a power LED + brand label.
+// CRT Monitor — chunky 90s beige-grey tower. Taper back case + rounded
+// front bezel + recessed screen + top & side vents + front controls
+// (power + degauss + LED) + branded nameplate + corner screws + cable.
 // -----------------------------------------------------------------------------
+
+/** Soft blue halo texture — radial gradient bright at center, fully
+    transparent at the edge. Sold in front of the CRT screen as a glow
+    plane so light from the phosphor appears to bleed onto the bezel. */
+function useScreenGlowTexture(): THREE.CanvasTexture | null {
+  return useMemo(() => {
+    if (typeof document === "undefined") return null;
+    const size = 512;
+    const cv = document.createElement("canvas");
+    cv.width = size;
+    cv.height = size;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return null;
+    const cx = size / 2;
+    const grd = ctx.createRadialGradient(cx, cx, size * 0.18, cx, cx, cx * 0.95);
+    grd.addColorStop(0,   "rgba(110, 175, 235, 0.65)");
+    grd.addColorStop(0.4, "rgba(74, 144, 216, 0.25)");
+    grd.addColorStop(0.75,"rgba(50, 110, 180, 0.08)");
+    grd.addColorStop(1,   "rgba(50, 110, 180, 0)");
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }, []);
+}
+
+/** Brand nameplate texture — dark metal plate with the studio name
+    etched in a dim warm-metal tint. Sits below the screen on the front
+    bezel. */
+function useBrandPlateTexture(): THREE.CanvasTexture | null {
+  return useMemo(() => {
+    if (typeof document === "undefined") return null;
+    const w = 512;
+    const h = 96;
+    const cv = document.createElement("canvas");
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return null;
+    // Brushed-metal dark background
+    const grd = ctx.createLinearGradient(0, 0, 0, h);
+    grd.addColorStop(0, "#2a2620");
+    grd.addColorStop(0.5, "#3a342c");
+    grd.addColorStop(1, "#221e18");
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, w, h);
+    // Subtle horizontal streaks for brushed metal
+    for (let i = 0; i < 80; i++) {
+      const y = Math.random() * h;
+      ctx.strokeStyle = `rgba(${90 + Math.random() * 40}, ${80 + Math.random() * 30}, ${60 + Math.random() * 20}, ${0.05 + Math.random() * 0.08})`;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+    // Etched text
+    ctx.fillStyle = "#a89c84";
+    ctx.font = "700 52px Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.letterSpacing = "4px";
+    ctx.fillText("FABRIQUE", w / 2, h / 2 + 2);
+    // Small model number line
+    ctx.fillStyle = "#746a58";
+    ctx.font = "500 18px Arial, sans-serif";
+    ctx.fillText("MODEL CRT-420", w / 2, h - 14);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }, []);
+}
 
 function CRTMonitor({
   view,
@@ -193,12 +267,19 @@ function CRTMonitor({
   const [hovered, setHovered] = useState(false);
   const ledRef = useRef<THREE.Mesh>(null);
   const screenMatRef = useRef<THREE.MeshStandardMaterial>(null);
+  const brandTex = useBrandPlateTexture();
+  const glowTex = useScreenGlowTexture();
   const W = 1.15;
   const H = 0.95;
   const D_FRONT = 0.85;
   const D_BACK = 0.55;
-  const beige = "#d8cdb4";
-  const beigeDark = "#b5aa90";
+  // Shifted cooler/greyer — was warm beige #d8cdb4, now grey-beige
+  // reminiscent of dusty IBM/Compaq 90s cases.
+  const beige = "#c1b9ac";
+  const beigeDark = "#988f82";
+  const beigeLight = "#d3ccc0";
+  const buttonDark = "#2a251e";
+  const screwDark = "#181410";
 
   // Screen is ALWAYS on (Win98 booted by default). Slight flicker for life.
   useFrame(({ clock }) => {
@@ -231,13 +312,16 @@ function CRTMonitor({
         <boxGeometry args={[W, H, 0.3]} />
         <meshStandardMaterial color={beige} metalness={0.15} roughness={0.55} />
       </mesh>
-      {/* Recessed screen area — slightly darker frame */}
+      {/* Recessed screen area — slightly darker frame. Height multiplier
+          bumped from 0.62→0.76 so the screen is closer to 4:3 and
+          matches the DOM aspect (420×320 → 1.31). */}
       <mesh position={[0, 0.04, D_FRONT / 2 - 0.15]}>
-        <boxGeometry args={[W * 0.82, H * 0.62, 0.05]} />
+        <boxGeometry args={[W * 0.82, H * 0.76, 0.05]} />
         <meshStandardMaterial color="#2a261c" metalness={0.2} roughness={0.6} />
       </mesh>
       {/* Screen surface — always emissive (Win98 is always booted). Acts
-          as the click target when in overview state. */}
+          as the click target when in overview state. The plane is sized
+          to match the Win98 DOM aspect so the form can fill it. */}
       <mesh
         position={[0, 0.04, D_FRONT / 2 - 0.12]}
         onClick={(e: ThreeEvent<PointerEvent>) => {
@@ -254,7 +338,7 @@ function CRTMonitor({
           document.body.style.cursor = "";
         }}
       >
-        <planeGeometry args={[W * 0.76, H * 0.58]} />
+        <planeGeometry args={[W * 0.76, H * 0.72]} />
         <meshStandardMaterial
           ref={screenMatRef}
           color="#1a3d62"
@@ -268,7 +352,7 @@ function CRTMonitor({
       {/* Hover ring in overview state — gold glow on the bezel */}
       {hovered && view === "overview" && (
         <mesh position={[0, 0.04, D_FRONT / 2 - 0.118]}>
-          <planeGeometry args={[W * 0.79, H * 0.61]} />
+          <planeGeometry args={[W * 0.79, H * 0.75]} />
           <meshBasicMaterial
             color="#ffd080"
             transparent
@@ -280,15 +364,33 @@ function CRTMonitor({
         </mesh>
       )}
 
-      {/* Win98 UI on the screen — drei Html in transform mode. Explicit
-          scale so the 680px DOM element maps to the ~0.87-unit screen
-          plane (680 * 0.0013 ≈ 0.88). distanceFactor misbehaved in
-          transform mode and rendered the DOM at 1 px = 1 scene unit,
-          which filled the whole viewport with teal. */}
+      {/* Screen glow — blue phosphor halo bleeding onto the bezel. Plane
+          is slightly larger than the screen so the soft edge of the
+          gradient texture feathers across the bezel boundary. Additive
+          blending keeps the underlying bezel color intact. */}
+      <mesh position={[0, 0.04, D_FRONT / 2 - 0.113]}>
+        <planeGeometry args={[W * 0.98, H * 0.94]} />
+        <meshBasicMaterial
+          map={glowTex ?? undefined}
+          color={glowTex ? "#ffffff" : "#4a90d8"}
+          transparent
+          opacity={0.9}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+
+      {/* Win98 UI on the screen — drei Html in transform mode. drei's
+          transform divides the scale prop by a factor derived from the
+          camera/perspective setup (empirically ~40 at this camera
+          distance), so the prop value here is the RAW value; a 420 px
+          DOM element at scale 0.083 lands at ~0.87 world units wide,
+          matching the screen plane W*0.76 = 0.874. */}
       <Html
         position={[0, 0.04, D_FRONT / 2 - 0.115]}
         transform
-        scale={0.002}
+        scale={0.083}
         pointerEvents={view === "computer" ? "auto" : "none"}
         wrapperClass="crt-html"
         zIndexRange={[0, 10]}
@@ -296,25 +398,115 @@ function CRTMonitor({
         <div className="crt-screen is-on">{screenNode}</div>
       </Html>
 
-      {/* Vents on top — dark slits */}
+      {/* Vents on top — longer array of thin dark slits */}
       <group position={[0, H / 2, -0.05]}>
-        {Array.from({ length: 5 }).map((_, i) => (
-          <mesh key={i} position={[(i - 2) * 0.15, 0.001, 0]}>
-            <boxGeometry args={[0.12, 0.005, 0.28]} />
+        {Array.from({ length: 7 }).map((_, i) => (
+          <mesh key={i} position={[(i - 3) * 0.12, 0.001, 0]}>
+            <boxGeometry args={[0.09, 0.005, 0.28]} />
             <meshStandardMaterial color="#04040a" metalness={0.2} roughness={0.8} />
           </mesh>
         ))}
       </group>
 
-      {/* Brand label strip — bottom center */}
-      <mesh position={[0, -H * 0.42, D_FRONT / 2 - 0.04]}>
-        <boxGeometry args={[0.22, 0.05, 0.02]} />
-        <meshStandardMaterial color="#8a8270" metalness={0.3} roughness={0.4} />
+      {/* Side vents — thin vertical slits on both sides of the rear case */}
+      {[-1, 1].map((side) => (
+        <group key={side} position={[side * (W * 0.45 - 0.01), 0, -0.08]}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <mesh key={i} position={[side * 0.001, (i - 1.5) * 0.1, -0.03 * i]}>
+              <boxGeometry args={[0.01, 0.07, 0.18]} />
+              <meshStandardMaterial color="#04040a" metalness={0.2} roughness={0.8} />
+            </mesh>
+          ))}
+        </group>
+      ))}
+
+      {/* Bottom accent stripe — thin lighter band across the bottom of
+          the front bezel, separating the control area from the screen
+          surround. Classic 90s monitor detail. */}
+      <mesh position={[0, -H * 0.35, D_FRONT / 2 - 0.04]}>
+        <boxGeometry args={[W * 0.86, 0.008, 0.015]} />
+        <meshStandardMaterial color={beigeLight} metalness={0.2} roughness={0.5} />
       </mesh>
-      {/* Power LED */}
-      <mesh ref={ledRef} position={[W / 2 - 0.09, -H * 0.42, D_FRONT / 2 - 0.04]}>
-        <sphereGeometry args={[0.018, 10, 10]} />
-        <meshBasicMaterial color="#40ff60" transparent opacity={0.85} toneMapped={false} />
+
+      {/* Branded nameplate — textured plate with "FABRIQUE" etched. Sits
+          bottom-left of the front control bay. */}
+      <mesh position={[-W * 0.22, -H * 0.42, D_FRONT / 2 - 0.035]}>
+        <boxGeometry args={[0.34, 0.075, 0.008]} />
+        <meshStandardMaterial
+          map={brandTex ?? undefined}
+          color={brandTex ? "#ffffff" : "#2a2620"}
+          metalness={0.45}
+          roughness={0.45}
+        />
+      </mesh>
+
+      {/* Power button — chunky push-button (recessed ring + inner cap) */}
+      <group position={[W * 0.28, -H * 0.42, D_FRONT / 2 - 0.03]}>
+        {/* Recessed ring */}
+        <mesh>
+          <cylinderGeometry args={[0.028, 0.028, 0.01, 18]} />
+          <meshStandardMaterial color={buttonDark} metalness={0.4} roughness={0.6} />
+        </mesh>
+        {/* Inner cap — slightly raised */}
+        <mesh position={[0, 0.003, 0]}>
+          <cylinderGeometry args={[0.02, 0.022, 0.012, 18]} />
+          <meshStandardMaterial color={beigeDark} metalness={0.2} roughness={0.55} />
+        </mesh>
+        {/* Power icon — tiny black dot (symbolic) */}
+        <mesh position={[0, 0.01, 0]}>
+          <cylinderGeometry args={[0.006, 0.006, 0.001, 10]} />
+          <meshStandardMaterial color="#110e0a" metalness={0.3} roughness={0.7} />
+        </mesh>
+      </group>
+
+      {/* Degauss button — smaller, flatter */}
+      <mesh position={[W * 0.38, -H * 0.42, D_FRONT / 2 - 0.03]}>
+        <cylinderGeometry args={[0.016, 0.018, 0.01, 14]} />
+        <meshStandardMaterial color={beigeDark} metalness={0.2} roughness={0.55} />
+      </mesh>
+
+      {/* Power LED — raised from its previous spot so it aligns with the
+          button bay. */}
+      <mesh ref={ledRef} position={[W * 0.45, -H * 0.42, D_FRONT / 2 - 0.03]}>
+        <sphereGeometry args={[0.018, 12, 12]} />
+        <meshBasicMaterial color="#40ff60" transparent opacity={0.9} toneMapped={false} />
+      </mesh>
+      {/* Tiny darker inset around the LED */}
+      <mesh position={[W * 0.45, -H * 0.42, D_FRONT / 2 - 0.035]}>
+        <cylinderGeometry args={[0.023, 0.023, 0.006, 14]} />
+        <meshStandardMaterial color={buttonDark} metalness={0.3} roughness={0.7} />
+      </mesh>
+
+      {/* Corner screws — four small dark screws at the corners of the
+          front bezel (where a real CRT's bezel panel would be fastened). */}
+      {[
+        [-1, 1],
+        [1, 1],
+        [-1, -1],
+        [1, -1],
+      ].map(([sx, sy], i) => (
+        <mesh
+          key={i}
+          position={[
+            sx * (W / 2 - 0.045),
+            sy * (H / 2 - 0.045),
+            D_FRONT / 2 - 0.028,
+          ]}
+        >
+          <cylinderGeometry args={[0.014, 0.014, 0.006, 10]} />
+          <meshStandardMaterial color={screwDark} metalness={0.7} roughness={0.35} />
+        </mesh>
+      ))}
+
+      {/* Cable bundle at the back — short thick cable emerging from the
+          center-back of the case and draping straight down off the rear. */}
+      <mesh
+        position={[-W * 0.25, -H / 2 + 0.02, -(D_BACK / 2 + 0.04)]}
+        rotation={[0.2, 0, 0]}
+        castShadow
+      >
+        <cylinderGeometry args={[0.024, 0.024, 0.5, 10]} />
+        <meshStandardMaterial color="#151210" metalness={0.2} roughness={0.7} />
       </mesh>
 
       {/* Small base/stand under the monitor */}
@@ -322,6 +514,26 @@ function CRTMonitor({
         <boxGeometry args={[W * 0.7, 0.08, D_FRONT * 0.7]} />
         <meshStandardMaterial color={beigeDark} metalness={0.15} roughness={0.6} />
       </mesh>
+
+      {/* Base foot pads — four tiny dark rubber feet at the corners */}
+      {[
+        [-1, -1],
+        [1, -1],
+        [-1, 1],
+        [1, 1],
+      ].map(([sx, sz], i) => (
+        <mesh
+          key={i}
+          position={[
+            sx * (W * 0.3),
+            -H / 2 - 0.09,
+            sz * (D_FRONT * 0.3),
+          ]}
+        >
+          <cylinderGeometry args={[0.025, 0.025, 0.015, 10]} />
+          <meshStandardMaterial color="#100d0a" metalness={0.1} roughness={0.9} />
+        </mesh>
+      ))}
     </group>
   );
 }
@@ -419,11 +631,11 @@ function ContactAudio() {
   const { camera } = useThree();
   const monitorPos = useMemo(() => new THREE.Vector3(0, TABLE_TOP_Y + 0.55, 0), []);
   useEffect(() => {
-    startLoop("contact-ambient");
+    // contact-ambient (filtered pink-noise room tone) removed — even
+    // heavily filtered it reads as white-noise hiss. Only the tonal CRT
+    // hum runs now.
     startLoop("contact-crt-hum");
-    setLoopVolume("contact-ambient", 0.6);
     return () => {
-      stopLoop("contact-ambient");
       stopLoop("contact-crt-hum");
     };
   }, []);
@@ -442,14 +654,15 @@ function ContactAudio() {
 }
 
 /** Light flicker — the spotlight physically toggles ON/OFF in discrete
- *  pulses (not random jitter). Off periods are longer than on flashes so
- *  the beam reads as a lamp struggling to stay lit, not a rave strobe.
- *  The last pulse of every flicker event is OFF, so the light "snaps
- *  back on" at the end — the sound layer sells the electrical character. */
+ *  pulses. Events are infrequent (15–45s between) with wide variance in
+ *  both gap and duration so the rhythm never feels timed. The LightBeam
+ *  and SpotlightFloor read spot.intensity each frame, so the *entire
+ *  cone* goes dark with the light — not just the illumination on the
+ *  table. */
 function SpotlightFlicker() {
   const { scene } = useThree();
   const state = useRef({
-    nextAt: performance.now() + 4000,
+    nextAt: performance.now() + 8000 + Math.random() * 10000,
     flickerUntil: 0,
     isOff: false,
     nextSwitchAt: 0,
@@ -463,17 +676,19 @@ function SpotlightFlicker() {
       | undefined;
     if (!spot) return;
     if (now > s.nextAt) {
-      s.flickerUntil = now + 700 + Math.random() * 500;
-      s.nextAt = now + 7000 + Math.random() * 8000;
+      // Wide random spread for duration — some flickers are quick ticks,
+      // others are half-second struggles.
+      s.flickerUntil = now + 300 + Math.random() * 1200;
+      // Less frequent, more random gap (15s..45s).
+      s.nextAt = now + 15000 + Math.random() * 30000;
       s.isOff = true;
-      s.nextSwitchAt = now + 70 + Math.random() * 100;
+      s.nextSwitchAt = now + 60 + Math.random() * 140;
       playSound("flicker", 0.65);
     }
     if (now < s.flickerUntil) {
       if (now > s.nextSwitchAt) {
         s.isOff = !s.isOff;
-        // Off pulses last longer than on pulses — dying light, not strobe.
-        s.nextSwitchAt = now + (s.isOff ? 70 + Math.random() * 160 : 25 + Math.random() * 60);
+        s.nextSwitchAt = now + (s.isOff ? 70 + Math.random() * 180 : 20 + Math.random() * 70);
       }
       spot.intensity = s.isOff ? 0 : NOMINAL;
     } else {
@@ -483,27 +698,90 @@ function SpotlightFlicker() {
   return null;
 }
 
-/** Visible beam — additive cone from the spotlight source (y=8.6) down
-    to the (lowered) floor at GROUND_Y. Base radius scales with height so
-    the cone spread still matches the spotlight angle. */
+/** Vertical alpha ramp for the beam — bright near the lamp, fading to
+    near-zero at the floor so the cone doesn't read as a hard silhouette.
+    Texture is 1×256 sampled along the cone's v axis (v=0 at apex). */
+function useBeamAlphaTexture(): THREE.CanvasTexture | null {
+  return useMemo(() => {
+    if (typeof document === "undefined") return null;
+    const cv = document.createElement("canvas");
+    cv.width = 4;
+    cv.height = 256;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return null;
+    const grd = ctx.createLinearGradient(0, 0, 0, 256);
+    grd.addColorStop(0,   "rgba(255,255,255,1)");     // apex = full
+    grd.addColorStop(0.25,"rgba(255,255,255,0.85)");
+    grd.addColorStop(0.7, "rgba(255,255,255,0.35)");
+    grd.addColorStop(1,   "rgba(255,255,255,0)");     // floor = nothing
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, 4, 256);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.NoColorSpace;
+    return tex;
+  }, []);
+}
+
+/** Visible beam — two nested additive cones (bright core + feathered
+    outer halo) with a vertical alpha ramp on each so the top-of-beam
+    bleeds brighter and the bottom fades into the floor pool without a
+    visible edge. Both cones ride spot.intensity so the whole thing snaps
+    dark during a flicker. */
 function LightBeam() {
+  const innerRef = useRef<THREE.MeshBasicMaterial>(null);
+  const outerRef = useRef<THREE.MeshBasicMaterial>(null);
+  const { scene } = useThree();
+  const alphaTex = useBeamAlphaTexture();
   const SRC_Y = 8.6;
   const height = SRC_Y - GROUND_Y;
   const radius = 2.8 * (height / 8.6);
   const centerY = (SRC_Y + GROUND_Y) / 2;
+  const INNER_MAX = 0.055;
+  const OUTER_MAX = 0.028;
+  const NOMINAL = 220;
+  useFrame(() => {
+    const spot = scene.getObjectByProperty("isSpotLight", true) as
+      | THREE.SpotLight
+      | undefined;
+    const k = Math.min(1, (spot ? spot.intensity : NOMINAL) / NOMINAL);
+    if (innerRef.current) innerRef.current.opacity = k * INNER_MAX;
+    if (outerRef.current) outerRef.current.opacity = k * OUTER_MAX;
+  });
   return (
-    <mesh position={[0, centerY, 0.2]}>
-      <coneGeometry args={[radius, height, 48, 1, true]} />
-      <meshBasicMaterial
-        color="#ffd890"
-        transparent
-        opacity={0.05}
-        blending={THREE.AdditiveBlending}
-        side={THREE.DoubleSide}
-        depthWrite={false}
-        toneMapped={false}
-      />
-    </mesh>
+    <group position={[0, centerY, 0.2]}>
+      {/* Inner bright core */}
+      <mesh>
+        <coneGeometry args={[radius * 0.82, height, 64, 1, true]} />
+        <meshBasicMaterial
+          ref={innerRef}
+          map={alphaTex ?? undefined}
+          alphaMap={alphaTex ?? undefined}
+          color="#ffd890"
+          transparent
+          opacity={INNER_MAX}
+          blending={THREE.AdditiveBlending}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+      {/* Outer feathered halo — wider, dimmer, hides the silhouette edge */}
+      <mesh>
+        <coneGeometry args={[radius * 1.25, height, 64, 1, true]} />
+        <meshBasicMaterial
+          ref={outerRef}
+          map={alphaTex ?? undefined}
+          alphaMap={alphaTex ?? undefined}
+          color="#ffd890"
+          transparent
+          opacity={OUTER_MAX}
+          blending={THREE.AdditiveBlending}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+    </group>
   );
 }
 
@@ -529,19 +807,63 @@ function Ground() {
   );
 }
 
-/** Warm pool disc — slightly above the ground so the spotlight has a
-    readable bright catch on the rough wood. Radius scales with the
-    deeper cone. */
+/** Radial-gradient pool texture — bright center, invisible edge. Used
+    as an alpha-map-ish tint texture on the floor pool so the light has
+    a soft falloff instead of a hard circle edge. */
+function useLightPoolTexture(): THREE.CanvasTexture | null {
+  return useMemo(() => {
+    if (typeof document === "undefined") return null;
+    const size = 512;
+    const cv = document.createElement("canvas");
+    cv.width = size;
+    cv.height = size;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return null;
+    const cx = size / 2;
+    const grd = ctx.createRadialGradient(cx, cx, size * 0.05, cx, cx, cx);
+    grd.addColorStop(0,    "rgba(255, 224, 170, 1)");
+    grd.addColorStop(0.25, "rgba(255, 219, 160, 0.7)");
+    grd.addColorStop(0.55, "rgba(255, 208, 140, 0.28)");
+    grd.addColorStop(0.85, "rgba(255, 200, 128, 0.06)");
+    grd.addColorStop(1,    "rgba(255, 200, 128, 0)");
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }, []);
+}
+
+/** Warm pool disc — radial-gradient texture gives the spotlight a soft
+    realistic falloff into darkness instead of a hard circle edge. Opacity
+    tracks spot.intensity so the pool vanishes during flicker events. */
 function SpotlightFloor() {
+  const matRef = useRef<THREE.MeshBasicMaterial>(null);
+  const { scene } = useThree();
+  const pool = useLightPoolTexture();
   const SRC_Y = 8.6;
-  const radius = 2.9 * ((SRC_Y - GROUND_Y) / 8.6);
+  const radius = 3.3 * ((SRC_Y - GROUND_Y) / 8.6);
+  const MAX_OPACITY = 0.85;
+  const NOMINAL = 220;
+  useFrame(() => {
+    if (!matRef.current) return;
+    const spot = scene.getObjectByProperty("isSpotLight", true) as
+      | THREE.SpotLight
+      | undefined;
+    const i = spot ? spot.intensity : NOMINAL;
+    matRef.current.opacity = Math.min(1, i / NOMINAL) * MAX_OPACITY;
+  });
   return (
     <mesh position={[0, GROUND_Y + 0.01, 0.2]} rotation={[-Math.PI / 2, 0, 0]}>
-      <circleGeometry args={[radius, 48]} />
+      {/* Circle geometry (not plane) so there's no square silhouette past
+          where the radial-gradient texture goes transparent. */}
+      <circleGeometry args={[radius, 96]} />
       <meshBasicMaterial
-        color="#ffdba0"
+        ref={matRef}
+        map={pool ?? undefined}
+        color={pool ? "#ffffff" : "#ffdba0"}
         transparent
-        opacity={0.12}
+        opacity={MAX_OPACITY}
         blending={THREE.AdditiveBlending}
         depthWrite={false}
         toneMapped={false}
@@ -628,16 +950,159 @@ function Floaters() {
   );
 }
 
+/** Constellation net — 300 dim particles scattered across the whole
+ *  scene volume that constantly drift wind-like. Every frame we rebuild
+ *  a LineSegments geometry connecting any two particles within a small
+ *  world distance; opacity of each segment fades with distance. The
+ *  result is a slow-morphing web that re-threads itself as particles
+ *  drift past each other — "the connecting crazy cool shit". */
+function ConstellationNet() {
+  const N = 300;
+  const MAX_LINK_DIST = 1.25;
+  const MAX_LINKS = 900;
+  const pointsRef = useRef<THREE.Points>(null);
+  const linesRef = useRef<THREE.LineSegments>(null);
+
+  // Home positions + drift phases seeded per-particle so the motion is
+  // not globally coherent.
+  const { pointGeom, lineGeom, homes, phases, lineColors } = useMemo(() => {
+    const pos = new Float32Array(N * 3);
+    const home = new Float32Array(N * 3);
+    const ph = new Float32Array(N * 6); // fx,fy,fz, phx,phy,phz per particle
+    const rnd = (n: number) => {
+      const x = Math.sin(n * 78.233 + 7.19) * 43758.5;
+      return x - Math.floor(x);
+    };
+    for (let i = 0; i < N; i++) {
+      const x = (rnd(i * 3 + 1) - 0.5) * 22;
+      const y = 0.2 + rnd(i * 3 + 2) * 7.5;
+      const z = (rnd(i * 3 + 3) - 0.5) * 9 - 1.5;
+      pos[i * 3] = home[i * 3] = x;
+      pos[i * 3 + 1] = home[i * 3 + 1] = y;
+      pos[i * 3 + 2] = home[i * 3 + 2] = z;
+      ph[i * 6]     = 0.08 + rnd(i * 5 + 11) * 0.18; // fx
+      ph[i * 6 + 1] = 0.06 + rnd(i * 5 + 13) * 0.18;
+      ph[i * 6 + 2] = 0.04 + rnd(i * 5 + 17) * 0.10;
+      ph[i * 6 + 3] = rnd(i * 5 + 19) * Math.PI * 2;
+      ph[i * 6 + 4] = rnd(i * 5 + 23) * Math.PI * 2;
+      ph[i * 6 + 5] = rnd(i * 5 + 29) * Math.PI * 2;
+    }
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+
+    const lPos = new Float32Array(MAX_LINKS * 6);
+    const lCol = new Float32Array(MAX_LINKS * 6);
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute("position", new THREE.BufferAttribute(lPos, 3));
+    lg.setAttribute("color", new THREE.BufferAttribute(lCol, 3));
+    lg.setDrawRange(0, 0);
+
+    return { pointGeom: pg, lineGeom: lg, homes: home, phases: ph, lineColors: lCol };
+  }, []);
+
+  const MAX_LINK_DIST2 = MAX_LINK_DIST * MAX_LINK_DIST;
+
+  useFrame(({ clock }) => {
+    const time = clock.elapsedTime;
+    const pAttr = pointGeom.attributes.position as THREE.BufferAttribute;
+    const arr = pAttr.array as Float32Array;
+
+    // Drift: each particle oscillates around its home with per-particle
+    // frequencies/phases. No integration — pure sin/cos so the field
+    // breathes without ever drifting off.
+    for (let i = 0; i < N; i++) {
+      const i3 = i * 3;
+      const ph6 = i * 6;
+      arr[i3]     = homes[i3]     + Math.sin(time * phases[ph6]     + phases[ph6 + 3]) * 0.55;
+      arr[i3 + 1] = homes[i3 + 1] + Math.cos(time * phases[ph6 + 1] + phases[ph6 + 4]) * 0.38;
+      arr[i3 + 2] = homes[i3 + 2] + Math.sin(time * phases[ph6 + 2] + phases[ph6 + 5]) * 0.22;
+    }
+    pAttr.needsUpdate = true;
+
+    // Rebuild link geometry — for every pair within MAX_LINK_DIST add a
+    // line segment with opacity ∝ (1 - d/MAX_LINK_DIST). O(N²) but N is
+    // small enough to run every frame.
+    const lAttr = lineGeom.attributes.position as THREE.BufferAttribute;
+    const cAttr = lineGeom.attributes.color as THREE.BufferAttribute;
+    const lArr = lAttr.array as Float32Array;
+    let links = 0;
+    for (let i = 0; i < N && links < MAX_LINKS; i++) {
+      const ix = arr[i * 3];
+      const iy = arr[i * 3 + 1];
+      const iz = arr[i * 3 + 2];
+      for (let j = i + 1; j < N; j++) {
+        const dx = ix - arr[j * 3];
+        const dy = iy - arr[j * 3 + 1];
+        const dz = iz - arr[j * 3 + 2];
+        const d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < MAX_LINK_DIST2) {
+          const off = links * 6;
+          lArr[off]     = ix;
+          lArr[off + 1] = iy;
+          lArr[off + 2] = iz;
+          lArr[off + 3] = arr[j * 3];
+          lArr[off + 4] = arr[j * 3 + 1];
+          lArr[off + 5] = arr[j * 3 + 2];
+          const alpha = 1 - Math.sqrt(d2) / MAX_LINK_DIST;
+          // Pale blue tint per endpoint; magnitude encodes falloff via
+          // additive blending (dimmer color = weaker line).
+          const c = alpha * 0.55;
+          lineColors[off]     = c * 0.55;
+          lineColors[off + 1] = c * 0.7;
+          lineColors[off + 2] = c;
+          lineColors[off + 3] = c * 0.55;
+          lineColors[off + 4] = c * 0.7;
+          lineColors[off + 5] = c;
+          links++;
+          if (links >= MAX_LINKS) break;
+        }
+      }
+    }
+    lAttr.needsUpdate = true;
+    cAttr.needsUpdate = true;
+    lineGeom.setDrawRange(0, links * 2);
+  });
+
+  return (
+    <>
+      <points ref={pointsRef}>
+        <primitive object={pointGeom} attach="geometry" />
+        <pointsMaterial
+          size={1.6}
+          color="#8ab4e0"
+          transparent
+          opacity={0.55}
+          sizeAttenuation={false}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          toneMapped={false}
+        />
+      </points>
+      <lineSegments ref={linesRef}>
+        <primitive object={lineGeom} attach="geometry" />
+        <lineBasicMaterial
+          vertexColors
+          transparent
+          opacity={1}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </lineSegments>
+    </>
+  );
+}
+
 /** Retinal noise — fine grain scattered in the frustum. Slow swirl. */
 function RetinalNoise() {
   const ref = useRef<THREE.Points>(null);
   const geometry = useMemo(() => {
-    const N = 600;
+    const N = 1400; // dense scatter so the background has specks everywhere
     const pos = new Float32Array(N * 3);
     for (let i = 0; i < N; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 22;
-      pos[i * 3 + 1] = 0.3 + Math.random() * 12; // above ground only
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 14 - 5;
+      pos[i * 3] = (Math.random() - 0.5) * 28;
+      pos[i * 3 + 1] = 0.1 + Math.random() * 12;
+      pos[i * 3 + 2] = (Math.random() - 0.5) * 16 - 4;
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
@@ -779,13 +1244,14 @@ function genPhantomShape(shape: PhantomShape, N: number, seed: number) {
   return pts;
 }
 
-/** Sand-like hallucination cloud.
+/** Phantom hallucination cloud.
  *
- * The cursor passes *through* these patches. Each grain is tracked and
- * pushed individually when the cursor's projected world-position gets
- * close; grains slowly settle back toward their home positions. The
- * group itself never moves — the whole effect comes from per-point
- * buffer-attribute updates. */
+ * Constantly drifts on its own — the whole cloud traces a slow sinusoidal
+ * path across the scene (wind feel), and each individual grain wanders
+ * around its home with its own micro-phase so the cloud "breathes" even
+ * when stationary. Cursor still displaces individual grains and they
+ * settle back to their drifting targets. A subtle whisper SFX fires when
+ * the cursor first crosses into the cloud's catchment area. */
 function PhantomCloud({
   position,
   tint,
@@ -801,49 +1267,121 @@ function PhantomCloud({
 }) {
   const ref = useRef<THREE.Points>(null);
   const { pointer, camera } = useThree();
-  const { geometry, homes } = useMemo(() => {
-    const N = 110;
+  const N = 110;
+  const { geometry, homes, targetHomes } = useMemo(() => {
     const pts = genPhantomShape(shape, N, seed);
     const h = new Float32Array(pts);
+    const t = new Float32Array(pts);
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(pts, 3));
-    return { geometry: g, homes: h };
+    return { geometry: g, homes: h, targetHomes: t };
   }, [shape, seed]);
+  // Kick off a shape-shift cycle — swap targetHomes to a fresh random
+  // shape every 7–18 s so every cloud is perpetually morphing.
+  useEffect(() => {
+    const shapes: PhantomShape[] = ["figure", "eye", "hand", "scribble", "spiral", "crescent"];
+    let timer: number;
+    const cycle = () => {
+      const next = shapes[Math.floor(Math.random() * shapes.length)];
+      const fresh = genPhantomShape(next, N, seed + Math.floor(Math.random() * 9999));
+      for (let i = 0; i < targetHomes.length; i++) targetHomes[i] = fresh[i];
+      timer = window.setTimeout(cycle, 7000 + Math.random() * 11000);
+    };
+    timer = window.setTimeout(cycle, 2000 + Math.random() * 5000);
+    return () => window.clearTimeout(timer);
+  }, [seed, targetHomes]);
   const cursorWorld = useMemo(() => new THREE.Vector3(), []);
-  useFrame((_, delta) => {
+  const inside = useRef(false);
+  // Unique drift phases derived from seed so no two clouds move in lockstep.
+  const dp = useMemo(() => {
+    const r = (n: number) => {
+      const x = Math.sin(seed * 127.1 + n * 311.7) * 43758.5;
+      return x - Math.floor(x);
+    };
+    return {
+      fx: 0.08 + r(1) * 0.12, // 0.08..0.20 Hz — very slow drift
+      fy: 0.06 + r(2) * 0.10,
+      fz: 0.05 + r(3) * 0.06,
+      ax: 0.35 + r(4) * 0.45, // world-unit amplitude
+      ay: 0.22 + r(5) * 0.30,
+      az: 0.12 + r(6) * 0.14,
+      phx: r(7) * Math.PI * 2,
+      phy: r(8) * Math.PI * 2,
+      phz: r(9) * Math.PI * 2,
+    };
+  }, [seed]);
+  useFrame(({ clock }, delta) => {
     if (!ref.current) return;
-    // Project cursor to world then into cloud-local space (points live in
-    // local coords; the group's scale maps them to world size).
+    const t = clock.elapsedTime;
+
+    // Whole-cloud drift — slow, organic, wind-like
+    const gx = Math.sin(t * dp.fx + dp.phx) * dp.ax;
+    const gy = Math.cos(t * dp.fy + dp.phy) * dp.ay;
+    const gz = Math.sin(t * dp.fz + dp.phz) * dp.az;
+    ref.current.position.set(position[0] + gx, position[1] + gy, position[2] + gz);
+
+    // Project cursor to world then into cloud-local space
     cursorWorld.set(pointer.x, pointer.y, 0.5).unproject(camera);
     const dir = cursorWorld.clone().sub(camera.position).normalize();
     if (Math.abs(dir.z) < 1e-4) return;
-    const tToPlane = (position[2] - camera.position.z) / dir.z;
+    const tToPlane = (position[2] + gz - camera.position.z) / dir.z;
     const px = camera.position.x + dir.x * tToPlane;
     const py = camera.position.y + dir.y * tToPlane;
-    const lx = (px - position[0]) / scale;
-    const ly = (py - position[1]) / scale;
+    const lx = (px - (position[0] + gx)) / scale;
+    const ly = (py - (position[1] + gy)) / scale;
 
     const attr = geometry.attributes.position as THREE.BufferAttribute;
     const arr = attr.array as Float32Array;
-    const R = 0.55 / scale;        // local-space push radius
+    const R = 0.55 / scale;
     const R2 = R * R;
-    const pushK = 6.5;              // how hard the cursor shoves a grain
-    const restoreLambda = 0.55;     // damp rate — lower = slower settle
+    const pushK = 6.5;
+    const restoreLambda = 0.8;
+    const morphLambda = 0.55; // how fast homes chase targetHomes
+    let grainsNear = 0;
     for (let i = 0; i < arr.length; i += 3) {
+      // Continuously morph each home toward its fresh target — this is
+      // what makes the cloud shapeshift between figure/eye/hand/etc.
+      homes[i]     = THREE.MathUtils.damp(homes[i],     targetHomes[i],     morphLambda, delta);
+      homes[i + 1] = THREE.MathUtils.damp(homes[i + 1], targetHomes[i + 1], morphLambda, delta);
+      homes[i + 2] = THREE.MathUtils.damp(homes[i + 2], targetHomes[i + 2], morphLambda, delta);
+
+      // Per-grain swirl — each grain has its own phase so the cloud
+      // shimmers/breathes constantly.
+      const gi = i / 3;
+      const phase = seed * 0.13 + gi * 0.37;
+      const mx = Math.sin(t * 0.55 + phase) * 0.06;
+      const my = Math.cos(t * 0.48 + phase * 1.3) * 0.06;
+      const mz = Math.sin(t * 0.33 + phase * 0.7) * 0.03;
+
+      const tx = homes[i] + mx;
+      const ty = homes[i + 1] + my;
+      const tz = homes[i + 2] + mz;
+
+      // Cursor pass-through — shove individual grains
       const dx = arr[i] - lx;
       const dy = arr[i + 1] - ly;
       const d2 = dx * dx + dy * dy;
+      if (d2 < R2) grainsNear++;
       if (d2 < R2 && d2 > 0.0001) {
         const d = Math.sqrt(d2);
         const force = ((R - d) / R) * pushK * delta;
         arr[i] += (dx / d) * force;
         arr[i + 1] += (dy / d) * force;
       }
-      arr[i] = THREE.MathUtils.damp(arr[i], homes[i], restoreLambda, delta);
-      arr[i + 1] = THREE.MathUtils.damp(arr[i + 1], homes[i + 1], restoreLambda, delta);
-      arr[i + 2] = THREE.MathUtils.damp(arr[i + 2], homes[i + 2], restoreLambda, delta);
+
+      // Damp each grain toward its MOVING target (home + micro-wander)
+      arr[i] = THREE.MathUtils.damp(arr[i], tx, restoreLambda, delta);
+      arr[i + 1] = THREE.MathUtils.damp(arr[i + 1], ty, restoreLambda, delta);
+      arr[i + 2] = THREE.MathUtils.damp(arr[i + 2], tz, restoreLambda, delta);
     }
     attr.needsUpdate = true;
+
+    // Pass-through SFX — fire once on enter, not every frame.
+    const nowInside = grainsNear > 4;
+    if (nowInside && !inside.current) {
+      playSound("phantom-whisper", 0.22);
+    }
+    inside.current = nowInside;
   });
   return (
     <points ref={ref} position={position} scale={scale}>
@@ -1139,6 +1677,7 @@ export function ContactScene() {
             actually visible against the dark backdrop. */}
         <RetinalNoise />
         <Floaters />
+        <ConstellationNet />
         {/* Phantom shapes — weird half-seen things the eye invents in
             the dark. Dim, low-saturation tints, irregular geometries
             (figures, eyes, hands, scribbles, spirals, crescents). Each
@@ -1146,22 +1685,40 @@ export function ContactScene() {
             passes through and shoves individual grains. More patches
             at smaller scales so they read as many half-glimpsed things
             rather than a few big blobs. All above ground. */}
-        <PhantomCloud position={[-5.8, 2.8, 1.8]} tint="#4a5c80" seed={11}  scale={0.9} shape="figure"   />
-        <PhantomCloud position={[ 5.4, 3.2, 1.2]} tint="#5a4860" seed={29}  scale={0.7} shape="eye"      />
-        <PhantomCloud position={[-4.4, 4.9, 2.6]} tint="#4a6a50" seed={47}  scale={0.8} shape="hand"     />
-        <PhantomCloud position={[ 6.3, 5.0,-0.5]} tint="#60485a" seed={73}  scale={1.0} shape="scribble" />
-        <PhantomCloud position={[-7.3, 2.1, 0.4]} tint="#5a4a38" seed={101} scale={0.9} shape="spiral"   />
-        <PhantomCloud position={[ 4.1, 1.5, 2.0]} tint="#3a5060" seed={127} scale={0.7} shape="crescent" />
-        <PhantomCloud position={[ 0.2, 6.4,-2.2]} tint="#484058" seed={157} scale={0.9} shape="figure"   />
-        <PhantomCloud position={[-7.7, 5.8,-0.9]} tint="#3e4e60" seed={191} scale={0.8} shape="eye"      />
-        <PhantomCloud position={[ 7.4, 2.7, 2.4]} tint="#4a4062" seed={211} scale={0.6} shape="scribble" />
-        <PhantomCloud position={[-2.8, 7.1, 2.0]} tint="#405868" seed={233} scale={0.7} shape="crescent" />
-        <PhantomCloud position={[ 3.4, 6.0, 3.0]} tint="#584860" seed={263} scale={0.6} shape="spiral"   />
-        <PhantomCloud position={[-5.5, 1.1, 3.3]} tint="#554d3a" seed={307} scale={0.55} shape="hand"    />
-        <PhantomCloud position={[ 5.9, 0.9, 3.6]} tint="#3d4a58" seed={331} scale={0.55} shape="figure"  />
-        <PhantomCloud position={[-2.0, 4.4, 4.0]} tint="#4e3c4a" seed={373} scale={0.5}  shape="eye"     />
-        <PhantomCloud position={[ 2.5, 3.3, 4.1]} tint="#3a4852" seed={409} scale={0.5}  shape="scribble"/>
-        <PhantomCloud position={[-0.4, 1.4,-3.2]} tint="#3c4660" seed={449} scale={0.8}  shape="spiral"  />
+        <PhantomCloud position={[-5.8, 2.8, 1.8]} tint="#4a5c80" seed={11}  scale={0.9}  shape="figure"   />
+        <PhantomCloud position={[ 5.4, 3.2, 1.2]} tint="#5a4860" seed={29}  scale={0.7}  shape="eye"      />
+        <PhantomCloud position={[-4.4, 4.9, 2.6]} tint="#4a6a50" seed={47}  scale={0.8}  shape="hand"     />
+        <PhantomCloud position={[ 6.3, 5.0,-0.5]} tint="#60485a" seed={73}  scale={1.0}  shape="scribble" />
+        <PhantomCloud position={[-7.3, 2.1, 0.4]} tint="#5a4a38" seed={101} scale={0.9}  shape="spiral"   />
+        <PhantomCloud position={[ 4.1, 1.5, 2.0]} tint="#3a5060" seed={127} scale={0.7}  shape="crescent" />
+        <PhantomCloud position={[ 0.2, 6.4,-2.2]} tint="#484058" seed={157} scale={0.9}  shape="figure"   />
+        <PhantomCloud position={[-7.7, 5.8,-0.9]} tint="#3e4e60" seed={191} scale={0.8}  shape="eye"      />
+        <PhantomCloud position={[ 7.4, 2.7, 2.4]} tint="#4a4062" seed={211} scale={0.6}  shape="scribble" />
+        <PhantomCloud position={[-2.8, 7.1, 2.0]} tint="#405868" seed={233} scale={0.7}  shape="crescent" />
+        <PhantomCloud position={[ 3.4, 6.0, 3.0]} tint="#584860" seed={263} scale={0.6}  shape="spiral"   />
+        <PhantomCloud position={[-5.5, 1.1, 3.3]} tint="#554d3a" seed={307} scale={0.55} shape="hand"     />
+        <PhantomCloud position={[ 5.9, 0.9, 3.6]} tint="#3d4a58" seed={331} scale={0.55} shape="figure"   />
+        <PhantomCloud position={[-2.0, 4.4, 4.0]} tint="#4e3c4a" seed={373} scale={0.5}  shape="eye"      />
+        <PhantomCloud position={[ 2.5, 3.3, 4.1]} tint="#3a4852" seed={409} scale={0.5}  shape="scribble" />
+        <PhantomCloud position={[-0.4, 1.4,-3.2]} tint="#3c4660" seed={449} scale={0.8}  shape="spiral"   />
+        {/* Second wave — denser field for the wind feel. Scattered across
+            wider x/y range and z layers so drift paths pass through each
+            other and produce parallax. */}
+        <PhantomCloud position={[-9.2, 3.5, 1.1]} tint="#45557a" seed={503} scale={0.65} shape="crescent" />
+        <PhantomCloud position={[ 9.0, 4.1, 0.5]} tint="#5e4868" seed={547} scale={0.7}  shape="eye"      />
+        <PhantomCloud position={[-3.7, 0.6, 0.8]} tint="#4a5236" seed={577} scale={0.5}  shape="figure"   />
+        <PhantomCloud position={[ 3.0, 0.5, 0.6]} tint="#523c4a" seed={607} scale={0.5}  shape="hand"     />
+        <PhantomCloud position={[-6.6, 6.7, 1.5]} tint="#4b5270" seed={641} scale={0.75} shape="scribble" />
+        <PhantomCloud position={[ 7.9, 6.5, 2.1]} tint="#3b4a56" seed={673} scale={0.7}  shape="spiral"   />
+        <PhantomCloud position={[-1.1, 5.8, 3.6]} tint="#574860" seed={709} scale={0.55} shape="figure"   />
+        <PhantomCloud position={[ 1.3, 7.8, 1.9]} tint="#3f4f68" seed={739} scale={0.85} shape="eye"      />
+        <PhantomCloud position={[-8.6, 4.8, 3.0]} tint="#4c4466" seed={773} scale={0.6}  shape="hand"     />
+        <PhantomCloud position={[ 8.4, 1.8, 3.2]} tint="#3d4c5c" seed={811} scale={0.6}  shape="crescent" />
+        <PhantomCloud position={[-4.1, 2.5, 5.0]} tint="#4a425a" seed={853} scale={0.45} shape="spiral"   />
+        <PhantomCloud position={[ 4.5, 5.1, 5.0]} tint="#3a4a56" seed={887} scale={0.45} shape="scribble" />
+        <PhantomCloud position={[-0.8, 3.2,-4.0]} tint="#3e4864" seed={919} scale={0.7}  shape="figure"   />
+        <PhantomCloud position={[ 6.2, 8.0, 0.2]} tint="#524260" seed={953} scale={0.5}  shape="eye"      />
+        <PhantomCloud position={[-6.0, 7.8, 0.1]} tint="#3b5160" seed={991} scale={0.5}  shape="crescent" />
       </Suspense>
     </Canvas>
   );

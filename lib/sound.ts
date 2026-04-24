@@ -34,7 +34,8 @@ export type SoundName =
   | "type-key"    // keyboard tick
   | "win98-click" // OK button click
   | "win98-ding"  // 3-note success stinger
-  | "flicker";    // short electrical crackle — fluorescent/CRT flicker
+  | "flicker"     // short electrical crackle — fluorescent/CRT flicker
+  | "phantom-whisper"; // cursor-through-hallucination whisper
 
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
@@ -230,46 +231,10 @@ const loops: Record<string, LoopHandle | null> = {};
 
 /** Start (or return existing) CRT hum loop. Call once; use setLoopVolume
     to modulate gain based on camera distance. Idempotent. */
-export function startLoop(name: "contact-ambient" | "contact-crt-hum"): LoopHandle | null {
+export function startLoop(name: "contact-crt-hum"): LoopHandle | null {
   const c = ensureContext();
   if (!c || !masterGain) return null;
   if (loops[name]) return loops[name];
-  if (name === "contact-ambient") {
-    // Quiet room tone — filtered pink-ish noise, no cinematic sub bass.
-    // Intent: "empty room at night", not "impending doom". Sits low in
-    // the mix so the CRT buzz can read over it.
-    const bus = c.createGain();
-    bus.gain.value = 0.15;
-    bus.connect(masterGain);
-    const bp = c.createBiquadFilter();
-    bp.type = "bandpass";
-    bp.frequency.value = 500;
-    bp.Q.value = 0.6;
-    bp.connect(bus);
-    const nb = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
-    const nd = nb.getChannelData(0);
-    let last = 0;
-    for (let i = 0; i < nd.length; i++) {
-      const white = Math.random() * 2 - 1;
-      last = (last + 0.04 * white) / 1.04;
-      nd[i] = last * 2.5;
-    }
-    const ns = c.createBufferSource();
-    ns.buffer = nb;
-    ns.loop = true;
-    const ng = c.createGain();
-    ng.gain.value = 0.35;
-    ns.connect(ng).connect(bp);
-    ns.start();
-    const handle: LoopHandle = {
-      gain: bus,
-      stop: () => {
-        try { ns.stop(); } catch {}
-      },
-    };
-    loops[name] = handle;
-    return handle;
-  }
   if (name === "contact-crt-hum") {
     // Electrical BUZZ — sawtooth at 120 Hz (rectified mains harmonic)
     // through a narrow bandpass in the 400–800 Hz zone to focus the
@@ -320,7 +285,7 @@ export function startLoop(name: "contact-ambient" | "contact-crt-hum"): LoopHand
 }
 
 export function setLoopVolume(
-  name: "contact-ambient" | "contact-crt-hum",
+  name: "contact-crt-hum",
   v: number,
 ) {
   const h = loops[name];
@@ -328,7 +293,7 @@ export function setLoopVolume(
   h.gain.gain.value = Math.max(0, Math.min(1, v));
 }
 
-export function stopLoop(name: "contact-ambient" | "contact-crt-hum") {
+export function stopLoop(name: "contact-crt-hum") {
   const h = loops[name];
   if (!h) return;
   h.stop();
@@ -716,16 +681,43 @@ export function playSound(name: SoundName, volume = 1) {
       ns.stop(now + dur);
       break;
     }
+    case "phantom-whisper": {
+      // Soft airy whisper — filtered noise with a fast-in slow-out envelope
+      // and a quick pitch wobble on the bandpass. Randomized tone so each
+      // cloud sounds slightly different when the cursor brushes it.
+      const dur = 0.45;
+      const nb = c.createBuffer(1, c.sampleRate * dur, c.sampleRate);
+      const nd = nb.getChannelData(0);
+      for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+      const ns = c.createBufferSource();
+      ns.buffer = nb;
+      const bp = c.createBiquadFilter();
+      bp.type = "bandpass";
+      const center = 900 + Math.random() * 1800;
+      bp.frequency.setValueAtTime(center, now);
+      bp.frequency.exponentialRampToValueAtTime(
+        center * (0.6 + Math.random() * 0.6),
+        now + dur,
+      );
+      bp.Q.value = 4 + Math.random() * 3;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(v * 0.28, now + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      ns.connect(bp).connect(g).connect(masterGain);
+      ns.start(now);
+      ns.stop(now + dur + 0.02);
+      break;
+    }
     case "flicker": {
-      // Light bulb flicker — sequence of sharp mechanical clicks (the
-      // relay/contact of a switch making and breaking) with brief fizz
-      // bursts between them (gas-discharge tube trying to ignite). The
-      // whole thing ends with an electrical "power-off" tail: descending
-      // sawtooth (capacitor discharge) + crackle fizz, so the spotlight
-      // reads as actually TURNING OFF in electrical fashion.
+      // Light-switch flicker — pure mechanical click sequence, no fizz,
+      // no buzz. Just the sound of a relay/contact making and breaking
+      // at uneven intervals, like a light being flipped rapidly off and
+      // on. Clicks vary in brightness and timing so no flicker sounds
+      // the same.
       const mg = masterGain;
       const click = (at: number, level: number, bright: number) => {
-        const d = 0.024;
+        const d = 0.022;
         const nb = c.createBuffer(1, c.sampleRate * d, c.sampleRate);
         const nd = nb.getChannelData(0);
         for (let i = 0; i < nd.length; i++) {
@@ -736,60 +728,22 @@ export function playSound(name: SoundName, volume = 1) {
         const bp = c.createBiquadFilter();
         bp.type = "bandpass";
         bp.frequency.value = bright;
-        bp.Q.value = 2.4;
+        bp.Q.value = 2.5;
         const g = c.createGain();
         g.gain.value = v * level;
         ns.connect(bp).connect(g).connect(mg);
         ns.start(now + at);
         ns.stop(now + at + d + 0.005);
       };
-      const fizz = (at: number, d: number, level: number) => {
-        const nb = c.createBuffer(1, c.sampleRate * d, c.sampleRate);
-        const nd = nb.getChannelData(0);
-        for (let i = 0; i < nd.length; i++) {
-          const t = i / c.sampleRate;
-          const env = Math.exp(-t * 10) * (Math.random() < 0.35 ? 1 : 0.15);
-          nd[i] = (Math.random() * 2 - 1) * env;
-        }
-        const ns = c.createBufferSource();
-        ns.buffer = nb;
-        const hp = c.createBiquadFilter();
-        hp.type = "highpass";
-        hp.frequency.value = 1400;
-        const g = c.createGain();
-        g.gain.value = v * level;
-        ns.connect(hp).connect(g).connect(mg);
-        ns.start(now + at);
-        ns.stop(now + at + d);
-      };
-      // Uneven relay clicks — a light struggling to stay on.
-      click(0.00, 0.75, 3000);
-      fizz(0.02, 0.08, 0.30);
-      click(0.14, 0.55, 2500);
-      click(0.27, 0.50, 2800);
-      fizz(0.30, 0.10, 0.32);
-      if (Math.random() > 0.4) click(0.42, 0.45, 2300);
-      click(0.58, 0.65, 2650);
-      // --- "Off in electrical fashion" tail — descending capacitor
-      //     discharge + sustained fizz over ~260ms. The payoff that sells
-      //     the light actually shutting down, not just muted. ---
-      const tailAt = 0.70;
-      const tailDur = 0.26;
-      const pOsc = c.createOscillator();
-      pOsc.type = "sawtooth";
-      pOsc.frequency.setValueAtTime(280, now + tailAt);
-      pOsc.frequency.exponentialRampToValueAtTime(55, now + tailAt + tailDur);
-      const pBp = c.createBiquadFilter();
-      pBp.type = "bandpass";
-      pBp.frequency.value = 380;
-      pBp.Q.value = 4;
-      const pG = c.createGain();
-      pG.gain.setValueAtTime(v * 0.38, now + tailAt);
-      pG.gain.exponentialRampToValueAtTime(0.0001, now + tailAt + tailDur);
-      pOsc.connect(pBp).connect(pG).connect(mg);
-      pOsc.start(now + tailAt);
-      pOsc.stop(now + tailAt + tailDur + 0.02);
-      fizz(tailAt, tailDur, 0.5);
+      // Random click count + offsets so no two flickers sound identical.
+      const n = 3 + Math.floor(Math.random() * 4); // 3..6 clicks
+      let at = 0;
+      for (let i = 0; i < n; i++) {
+        const level = 0.45 + Math.random() * 0.35;
+        const bright = 2200 + Math.random() * 1000;
+        click(at, level, bright);
+        at += 0.07 + Math.random() * 0.22;
+      }
       break;
     }
     case "win98-ding": {
