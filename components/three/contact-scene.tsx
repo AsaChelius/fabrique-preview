@@ -32,34 +32,138 @@ import { playSound } from "@/lib/sound";
 import type { ContactFormData, ContactFormResponse } from "@/types/contact";
 
 type View = "overview" | "computer";
+type ScreenState = "boot" | "loading" | "form";
+const TABLE_TOP_Y = 1.6;
 
 // -----------------------------------------------------------------------------
-// Plinth — tall dark stone column the computer sits on
+// Wooden table — visible structure (legs, apron, grain). Replaces the plinth.
 // -----------------------------------------------------------------------------
 
-function Plinth() {
+/** Small procedural wood canvas texture — quick warm grain pattern so the
+    top surface reads as a real wooden plank, not a flat brown mesh. */
+function useWoodTexture(): THREE.CanvasTexture | null {
+  return useMemo(() => {
+    if (typeof document === "undefined") return null;
+    const w = 512;
+    const h = 256;
+    const cv = document.createElement("canvas");
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return null;
+    // Base warm brown
+    ctx.fillStyle = "#5a3a20";
+    ctx.fillRect(0, 0, w, h);
+    // Vertical plank seams
+    const planks = 4;
+    for (let i = 1; i < planks; i++) {
+      ctx.fillStyle = "#1e1008";
+      ctx.fillRect((i * w) / planks - 1, 0, 2, h);
+    }
+    // Horizontal grain streaks — long dark bands with random curvature
+    for (let i = 0; i < 120; i++) {
+      const y = Math.random() * h;
+      const amp = 3 + Math.random() * 6;
+      const shade = 30 + Math.random() * 60;
+      ctx.strokeStyle = `rgba(${shade}, ${shade * 0.55}, ${shade * 0.3}, ${0.35 + Math.random() * 0.4})`;
+      ctx.lineWidth = 0.5 + Math.random() * 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      for (let x = 0; x < w; x += 4) {
+        ctx.lineTo(x, y + Math.sin(x * 0.02 + i) * amp);
+      }
+      ctx.stroke();
+    }
+    // Sparse knots
+    for (let i = 0; i < 6; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h;
+      const r = 3 + Math.random() * 7;
+      const grd = ctx.createRadialGradient(x, y, 0, x, y, r);
+      grd.addColorStop(0, "rgba(20,8,0,0.8)");
+      grd.addColorStop(1, "rgba(60,30,10,0)");
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(1.2, 0.6);
+    return tex;
+  }, []);
+}
+
+function WoodenTable() {
+  const wood = useWoodTexture();
+  const TOP_W = 2.6;
+  const TOP_D = 1.7;
+  const TOP_THICK = 0.12;
+  const TOP_Y = 1.6; // top surface height
+  const LEG_W = 0.12;
+  const LEG_H = TOP_Y - TOP_THICK;
+  const APRON_H = 0.22;
+  const legColor = "#3a2410";
   return (
     <group position={[0, 0, 0]}>
-      {/* Shaft */}
-      <mesh position={[0, 0.85, 0]} castShadow receiveShadow>
-        <boxGeometry args={[0.75, 1.7, 0.75]} />
-        <meshStandardMaterial color="#16161a" metalness={0.2} roughness={0.75} />
+      {/* Tabletop */}
+      <mesh position={[0, TOP_Y - TOP_THICK / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[TOP_W, TOP_THICK, TOP_D]} />
+        <meshStandardMaterial
+          map={wood ?? undefined}
+          color={wood ? "#ffffff" : "#5a3a20"}
+          metalness={0.05}
+          roughness={0.78}
+        />
       </mesh>
-      {/* Top cap — slightly wider, lighter edge */}
-      <mesh position={[0, 1.74, 0]} castShadow>
-        <boxGeometry args={[0.95, 0.06, 0.95]} />
-        <meshStandardMaterial color="#1e1e24" metalness={0.3} roughness={0.55} />
+      {/* Front apron (skirt) — narrow horizontal board under the top */}
+      <mesh
+        position={[0, TOP_Y - TOP_THICK - APRON_H / 2, TOP_D / 2 - 0.08]}
+        castShadow
+      >
+        <boxGeometry args={[TOP_W - 0.2, APRON_H, 0.05]} />
+        <meshStandardMaterial color={legColor} metalness={0.08} roughness={0.7} />
       </mesh>
-      {/* Bottom cap */}
-      <mesh position={[0, 0.03, 0]} castShadow>
-        <boxGeometry args={[0.95, 0.06, 0.95]} />
-        <meshStandardMaterial color="#1e1e24" metalness={0.3} roughness={0.55} />
-      </mesh>
-      {/* Faint vertical seam lines for texture */}
+      {/* Side aprons */}
       {[-1, 1].map((s) => (
-        <mesh key={s} position={[s * 0.376, 0.85, 0]}>
-          <boxGeometry args={[0.005, 1.66, 0.76]} />
-          <meshStandardMaterial color="#050508" metalness={0.5} roughness={0.4} />
+        <mesh
+          key={s}
+          position={[s * (TOP_W / 2 - 0.08), TOP_Y - TOP_THICK - APRON_H / 2, 0]}
+          castShadow
+        >
+          <boxGeometry args={[0.05, APRON_H, TOP_D - 0.2]} />
+          <meshStandardMaterial color={legColor} metalness={0.08} roughness={0.7} />
+        </mesh>
+      ))}
+      {/* Back apron */}
+      <mesh
+        position={[0, TOP_Y - TOP_THICK - APRON_H / 2, -(TOP_D / 2 - 0.08)]}
+        castShadow
+      >
+        <boxGeometry args={[TOP_W - 0.2, APRON_H, 0.05]} />
+        <meshStandardMaterial color={legColor} metalness={0.08} roughness={0.7} />
+      </mesh>
+      {/* Four legs at the corners */}
+      {[
+        [-1, -1],
+        [1, -1],
+        [-1, 1],
+        [1, 1],
+      ].map(([sx, sz], i) => (
+        <mesh
+          key={i}
+          position={[
+            sx * (TOP_W / 2 - LEG_W / 2 - 0.02),
+            LEG_H / 2,
+            sz * (TOP_D / 2 - LEG_W / 2 - 0.02),
+          ]}
+          castShadow
+          receiveShadow
+        >
+          <boxGeometry args={[LEG_W, LEG_H, LEG_W]} />
+          <meshStandardMaterial color={legColor} metalness={0.06} roughness={0.75} />
         </mesh>
       ))}
     </group>
@@ -74,11 +178,11 @@ function Plinth() {
 function CRTMonitor({
   view,
   onClickScreen,
-  formNode,
+  screenNode,
 }: {
   view: View;
   onClickScreen: () => void;
-  formNode: React.ReactNode;
+  screenNode: React.ReactNode;
 }) {
   const [hovered, setHovered] = useState(false);
   const ledRef = useRef<THREE.Mesh>(null);
@@ -90,25 +194,25 @@ function CRTMonitor({
   const beige = "#d8cdb4";
   const beigeDark = "#b5aa90";
 
-  // Power the screen on when zoomed. Soft pulse intensity for glow.
+  // Screen is ALWAYS on (Win98 booted by default). Slight flicker for life.
   useFrame(({ clock }) => {
     if (!screenMatRef.current) return;
-    const on = view === "computer";
-    const target = on ? 1.6 : 0.0;
+    const target = 1.8 + Math.sin(clock.elapsedTime * 0.7) * 0.08;
     screenMatRef.current.emissiveIntensity = THREE.MathUtils.damp(
       screenMatRef.current.emissiveIntensity,
-      target + (on ? Math.sin(clock.elapsedTime * 0.7) * 0.08 : 0),
+      target,
       3,
       0.016,
     );
     if (ledRef.current) {
       const mat = ledRef.current.material as THREE.MeshBasicMaterial;
-      mat.opacity = on ? 1 : 0.85;
+      mat.opacity = 1;
     }
   });
 
+  // Sit the CRT on the tabletop — monitor center-y is at TOP + base + H/2.
   return (
-    <group position={[0, 1.77 + H / 2, 0]}>
+    <group position={[0, TABLE_TOP_Y + 0.08 + H / 2, 0]}>
       {/* Main case — box tapering back (approximated as a trapezoid-ish
           shape using a box with a shifted back — we fake the taper with
           separate front bezel mesh). */}
@@ -126,8 +230,8 @@ function CRTMonitor({
         <boxGeometry args={[W * 0.82, H * 0.62, 0.05]} />
         <meshStandardMaterial color="#2a261c" metalness={0.2} roughness={0.6} />
       </mesh>
-      {/* Screen surface — emissive plane with the canvas texture underneath
-          glow when powered. Click target. */}
+      {/* Screen surface — always emissive (Win98 is always booted). Acts
+          as the click target when in overview state. */}
       <mesh
         position={[0, 0.04, D_FRONT / 2 - 0.12]}
         onClick={(e: ThreeEvent<PointerEvent>) => {
@@ -147,22 +251,22 @@ function CRTMonitor({
         <planeGeometry args={[W * 0.76, H * 0.58]} />
         <meshStandardMaterial
           ref={screenMatRef}
-          color={view === "computer" ? "#3a5f8a" : "#0a0a10"}
-          emissive={view === "computer" ? "#3a5f8a" : "#050508"}
+          color="#1a3d62"
+          emissive="#1a3d62"
           emissiveIntensity={0}
           metalness={0.05}
           roughness={0.18}
           toneMapped={false}
         />
       </mesh>
-      {/* Subtle hover hint — outer ring brightens when in overview */}
+      {/* Hover ring in overview state — gold glow on the bezel */}
       {hovered && view === "overview" && (
         <mesh position={[0, 0.04, D_FRONT / 2 - 0.118]}>
           <planeGeometry args={[W * 0.79, H * 0.61]} />
           <meshBasicMaterial
             color="#ffd080"
             transparent
-            opacity={0.12}
+            opacity={0.16}
             blending={THREE.AdditiveBlending}
             depthWrite={false}
             toneMapped={false}
@@ -170,9 +274,9 @@ function CRTMonitor({
         </mesh>
       )}
 
-      {/* Win98 form — mounted as HTML on the screen. Only interactive when
-          zoomed in, otherwise pointer-events off so the user can click
-          through to the mesh below. */}
+      {/* Win98 UI on the screen — drei Html in transform mode scales DOM
+          pixels into scene units (distanceFactor=780 matches a 680px-wide
+          DOM to the ~0.87-unit screen plane). */}
       <Html
         position={[0, 0.04, D_FRONT / 2 - 0.115]}
         transform
@@ -181,12 +285,7 @@ function CRTMonitor({
         pointerEvents={view === "computer" ? "auto" : "none"}
         wrapperClass="crt-html"
       >
-        <div
-          className={`crt-screen ${view === "computer" ? "is-on" : ""}`}
-          aria-hidden={view !== "computer"}
-        >
-          {view === "computer" ? formNode : null}
-        </div>
+        <div className="crt-screen is-on">{screenNode}</div>
       </Html>
 
       {/* Vents on top — dark slits */}
@@ -224,20 +323,19 @@ function CRTMonitor({
 // -----------------------------------------------------------------------------
 
 function CameraRig({ view }: { view: View }) {
-  const targetPos = useRef(new THREE.Vector3(0, 2.1, 5.2));
-  const targetLook = useRef(new THREE.Vector3(0, 2.1, 0));
-  const lookTmp = useRef(new THREE.Vector3());
+  const targetPos = useRef(new THREE.Vector3(3.8, 2.6, 7.2));
+  const targetLook = useRef(new THREE.Vector3(0, 2.0, 0));
   useFrame(({ camera }, delta) => {
     if (view === "computer") {
-      targetPos.current.set(0, 2.3, 2.15);
-      targetLook.current.set(0, 2.3, 0);
+      // Head-on, close to the screen
+      targetPos.current.set(0, TABLE_TOP_Y + 0.55, 2.3);
+      targetLook.current.set(0, TABLE_TOP_Y + 0.55, 0);
     } else {
-      targetPos.current.set(0, 2.1, 5.4);
-      targetLook.current.set(0, 2.1, 0);
+      // 3/4 view — front and right side of the table visible
+      targetPos.current.set(3.8, 2.6, 7.2);
+      targetLook.current.set(0, 2.0, 0);
     }
-    camera.position.lerp(targetPos.current, Math.min(1, delta * 2.5));
-    lookTmp.current.copy(camera.position).sub(targetLook.current);
-    // Face the target smoothly — direct lookAt each frame keeps it stable.
+    camera.position.lerp(targetPos.current, Math.min(1, delta * 2.2));
     camera.lookAt(targetLook.current);
   });
   return null;
@@ -260,10 +358,10 @@ function SpotlightRig() {
       <ambientLight intensity={0.02} color="#303846" />
       <spotLight
         ref={spotRef}
-        position={[0, 7, 0.2]}
-        angle={0.32}
+        position={[0, 7.2, 0.1]}
+        angle={0.36}
         penumbra={0.55}
-        intensity={120}
+        intensity={140}
         distance={14}
         decay={2}
         color="#ffdba0"
@@ -271,22 +369,24 @@ function SpotlightRig() {
         shadow-mapSize-width={1024}
         shadow-mapSize-height={1024}
       />
-      <object3D ref={targetRef} position={[0, 1.9, 0]} />
+      <object3D ref={targetRef} position={[0, TABLE_TOP_Y + 0.4, 0]} />
     </>
   );
 }
 
-/** Visible beam — thin additive cone so the spotlight is visible as a
-    triangle of light descending through the air, matching the drawing. */
+/** Visible beam — thin additive cone. Apex up near the spotlight source,
+    base down at the table. Default coneGeometry has apex at +Y, so NO
+    rotation — any flip would invert the taper (the previous bug). */
 function LightBeam() {
-  const ref = useRef<THREE.Mesh>(null);
+  // Center at midpoint between source (y=7.2) and table top (y=1.6).
+  // Height 5.6, center y = 4.4, apex y = 7.2, base y = 1.6.
   return (
-    <mesh ref={ref} position={[0, 4, 0.2]} rotation={[Math.PI, 0, 0]}>
-      <coneGeometry args={[1.8, 6.5, 32, 1, true]} />
+    <mesh position={[0, 4.4, 0.1]}>
+      <coneGeometry args={[1.9, 5.6, 40, 1, true]} />
       <meshBasicMaterial
         color="#ffd890"
         transparent
-        opacity={0.05}
+        opacity={0.06}
         blending={THREE.AdditiveBlending}
         side={THREE.DoubleSide}
         depthWrite={false}
@@ -337,10 +437,10 @@ function Floaters() {
     <points ref={ref}>
       <primitive object={geometry} attach="geometry" />
       <pointsMaterial
-        size={2.5}
-        color="#8a9dbf"
+        size={4}
+        color="#a0b8e0"
         transparent
-        opacity={0.35}
+        opacity={0.7}
         sizeAttenuation={false}
         depthWrite={false}
         blending={THREE.AdditiveBlending}
@@ -372,10 +472,10 @@ function RetinalNoise() {
     <points ref={ref}>
       <primitive object={geometry} attach="geometry" />
       <pointsMaterial
-        size={1.2}
-        color="#3a4a6a"
+        size={1.8}
+        color="#6a80a8"
         transparent
-        opacity={0.5}
+        opacity={0.75}
         sizeAttenuation={false}
         depthWrite={false}
         blending={THREE.AdditiveBlending}
@@ -391,17 +491,18 @@ function PhantomCloud({
   position,
   tint,
   seed = 0,
+  scale = 1,
 }: {
   position: [number, number, number];
   tint: string;
   seed?: number;
+  scale?: number;
 }) {
   const ref = useRef<THREE.Points>(null);
   const geometry = useMemo(() => {
-    const N = 360;
+    const N = 420;
     const pos = new Float32Array(N * 3);
     for (let i = 0; i < N; i++) {
-      // Gaussian-ish distribution
       const u1 = Math.random() || 0.001;
       const u2 = Math.random();
       const g1 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
@@ -415,20 +516,21 @@ function PhantomCloud({
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     return g;
   }, []);
+  const baseScale = useRef(scale);
   useFrame(({ clock }, delta) => {
     if (!ref.current) return;
     ref.current.rotation.z += delta * 0.02;
     const breathe = 1 + Math.sin(clock.elapsedTime * 0.3 + seed) * 0.08;
-    ref.current.scale.setScalar(breathe);
+    ref.current.scale.setScalar(baseScale.current * breathe);
   });
   return (
-    <points ref={ref} position={position}>
+    <points ref={ref} position={position} scale={scale}>
       <primitive object={geometry} attach="geometry" />
       <pointsMaterial
-        size={3.5}
+        size={4.5}
         color={tint}
         transparent
-        opacity={0.22}
+        opacity={0.55}
         sizeAttenuation={false}
         depthWrite={false}
         blending={THREE.AdditiveBlending}
@@ -489,8 +591,76 @@ function AfterimageBlob() {
 }
 
 // -----------------------------------------------------------------------------
-// Windows 98 form — rendered as HTML on the CRT screen via drei <Html>
+// Windows 98 screen states — boot desktop, loading dialog, form
 // -----------------------------------------------------------------------------
+
+/** Boot state: teal Win98 desktop with the logo front-and-center. Purely
+    decorative in the overview — clicking the CRT (not the desktop) is
+    what kicks off the load sequence. A dotted prompt at the bottom
+    hints that the CRT is clickable. */
+function Win98Boot() {
+  return (
+    <div className="win98-desktop">
+      <div className="win98-watermark">
+        <div className="win98-flag big">
+          <span className="win98-flag-q1" />
+          <span className="win98-flag-q2" />
+          <span className="win98-flag-q3" />
+          <span className="win98-flag-q4" />
+        </div>
+        <div className="win98-watermark-text">Windows 98</div>
+        <div className="win98-prompt">Click to open Contact.exe</div>
+      </div>
+      <div className="win98-taskbar">
+        <div className="win98-start">
+          <div className="win98-flag tiny">
+            <span className="win98-flag-q1" />
+            <span className="win98-flag-q2" />
+            <span className="win98-flag-q3" />
+            <span className="win98-flag-q4" />
+          </div>
+          <span>Start</span>
+        </div>
+        <div className="win98-tray">
+          <span>3:14 AM</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Loading state: a classic Win98 progress window. Runs for ~3 seconds
+    before the form appears. The progress bar fills with the striped-blue
+    chunk animation. */
+function Win98Loading() {
+  return (
+    <div className="win98-desktop">
+      <div className="win98-window win98-loading">
+        <div className="win98-titlebar">
+          <span>Loading…</span>
+        </div>
+        <div className="win98-loading-body">
+          <p>Initializing Contact.exe…</p>
+          <p className="win98-loading-sub">Please wait while the form loads.</p>
+          <div className="win98-progress-outer">
+            <div className="win98-progress-inner" />
+          </div>
+        </div>
+      </div>
+      <div className="win98-taskbar">
+        <div className="win98-start">
+          <div className="win98-flag tiny">
+            <span className="win98-flag-q1" />
+            <span className="win98-flag-q2" />
+            <span className="win98-flag-q3" />
+            <span className="win98-flag-q4" />
+          </div>
+          <span>Start</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type Status = "idle" | "sending" | "ok" | "error";
 
@@ -619,43 +789,81 @@ function Win98Form({ onClose }: { onClose: () => void }) {
 
 export function ContactScene() {
   const [view, setView] = useState<View>("overview");
-  const onOpen = useCallback(() => {
+  const [screen, setScreen] = useState<ScreenState>("boot");
+  const loadTimer = useRef<number | null>(null);
+
+  // Click the CRT from overview → zoom in AND kick off the fake OS load.
+  // After 3 seconds the form appears (old-school app launch feel).
+  const onClickScreen = useCallback(() => {
     playSound("crt-on", 0.8);
     setView("computer");
+    // Tiny delay so the click sound reads first, then loading starts.
+    window.setTimeout(() => {
+      playSound("win98-click", 0.6);
+      setScreen("loading");
+    }, 250);
+    if (loadTimer.current) window.clearTimeout(loadTimer.current);
+    loadTimer.current = window.setTimeout(() => {
+      playSound("win98-ding", 0.6);
+      setScreen("form");
+    }, 3250);
   }, []);
+
   const onClose = useCallback(() => {
+    playSound("crt-off", 0.7);
     setView("overview");
+    // Small delay so the closing sound plays before the boot screen returns.
+    window.setTimeout(() => setScreen("boot"), 450);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (loadTimer.current) window.clearTimeout(loadTimer.current);
+    };
+  }, []);
+
+  const screenNode =
+    screen === "boot" ? (
+      <Win98Boot />
+    ) : screen === "loading" ? (
+      <Win98Loading />
+    ) : (
+      <Win98Form onClose={onClose} />
+    );
 
   return (
     <Canvas
-      camera={{ position: [0, 2.1, 5.4], fov: 35 }}
+      camera={{ position: [3.8, 2.6, 7.2], fov: 38 }}
       shadows
       gl={{ antialias: true, alpha: false }}
       style={{ width: "100%", height: "100%" }}
     >
       <Suspense fallback={null}>
         <color attach="background" args={["#020205"]} />
-        <fog attach="fog" args={["#020205", 6, 20]} />
+        <fog attach="fog" args={["#020205", 10, 26]} />
 
         <SpotlightRig />
         <LightBeam />
-        <Plinth />
+        <WoodenTable />
         <CRTMonitor
           view={view}
-          onClickScreen={onOpen}
-          formNode={<Win98Form onClose={onClose} />}
+          onClickScreen={onClickScreen}
+          screenNode={screenNode}
         />
         <CameraRig view={view} />
 
-        {/* The hallucination layer — everything the eye invents in darkness */}
+        {/* The hallucination layer — everything the eye invents in
+            darkness. Positioned CLOSE to the camera path so they're
+            actually visible against the dark backdrop. */}
         <RetinalNoise />
         <Floaters />
         <AfterimageBlob />
-        <PhantomCloud position={[-6, 2, -2]} tint="#6090ff" seed={11} />
-        <PhantomCloud position={[6, -1, -3]} tint="#ff80c0" seed={29} />
-        <PhantomCloud position={[-4, -3, -1]} tint="#80c060" seed={47} />
-        <PhantomCloud position={[5, 4, -4]} tint="#c080ff" seed={73} />
+        <PhantomCloud position={[-5, 3, 2]} tint="#6090ff" seed={11} scale={1.6} />
+        <PhantomCloud position={[5, 1, 1]} tint="#ff80c0" seed={29} scale={1.4} />
+        <PhantomCloud position={[-4, -2, 3]} tint="#80c060" seed={47} scale={1.2} />
+        <PhantomCloud position={[6, 4, -1]} tint="#c080ff" seed={73} scale={1.8} />
+        <PhantomCloud position={[-7, 0, 0]} tint="#ffb060" seed={101} scale={1.5} />
+        <PhantomCloud position={[4, -3, 2]} tint="#60ffc0" seed={127} scale={1.3} />
       </Suspense>
     </Canvas>
   );

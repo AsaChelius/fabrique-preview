@@ -732,8 +732,8 @@ body {
   pointer-events: none;
 }
 
-/* The CRT screen "page". When the monitor is off, this stays transparent
-   and non-interactive. When on, it blooms up. */
+/* The CRT screen "page" — always-on Win98 canvas. 4:3-ish aspect to
+   match the CRT bezel. */
 .crt-screen {
   width: 680px;
   height: 520px;
@@ -741,15 +741,195 @@ body {
   color: #ffffff;
   font-family: "MS Sans Serif", "Microsoft Sans Serif", Tahoma, sans-serif;
   font-size: 14px;
+  position: relative;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+/* ---- Win98 desktop (boot state) ---- */
+.win98-desktop {
+  width: 100%;
+  height: 100%;
+  background: #3a8a8a; /* classic teal */
+  position: relative;
+  padding: 14px;
+  font-family: "MS Sans Serif", "Microsoft Sans Serif", Tahoma, sans-serif;
+}
+.win98-watermark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0.28;
+}
+.win98-watermark-text {
+  font-size: 54px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.02em;
+  margin-top: 8px;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.4);
+}
+.win98-prompt {
+  margin-top: 24px;
+  font-size: 16px;
+  color: #ffffff;
+  letter-spacing: 0.04em;
+  opacity: 0.9;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.5);
+  border-top: 1px dashed rgba(255, 255, 255, 0.5);
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.5);
+  padding: 6px 14px;
+  animation: win98-blink 1.6s steps(2) infinite;
+}
+@keyframes win98-blink {
+  0%, 50% { opacity: 0.85; }
+  51%, 100% { opacity: 0.35; }
+}
+.win98-shortcut {
+  background: transparent;
+  border: 1px dotted transparent;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 86px;
+  text-align: center;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.6);
+}
+.win98-shortcut:hover,
+.win98-shortcut:focus-visible {
+  background: rgba(10, 36, 106, 0.5);
+  border: 1px dotted #ffffff;
+  outline: none;
+}
+.win98-shortcut-icon {
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  pointer-events: none;
 }
-.crt-screen.is-on {
-  opacity: 1;
-  pointer-events: auto;
+.win98-shortcut-label {
+  line-height: 1.15;
+}
+
+/* Win98 logo (4-pane flag). Built from 4 span quadrants. */
+.win98-flag {
+  width: 32px;
+  height: 28px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
+  transform: skewY(-8deg) perspective(60px) rotateY(-12deg);
+  transform-origin: center;
+}
+.win98-flag span { display: block; border-radius: 1px; }
+.win98-flag .win98-flag-q1 { background: #ed1c24; }
+.win98-flag .win98-flag-q2 { background: #00a651; }
+.win98-flag .win98-flag-q3 { background: #0072bc; }
+.win98-flag .win98-flag-q4 { background: #fff200; }
+.win98-flag.big { width: 110px; height: 92px; gap: 6px; }
+.win98-flag.tiny { width: 18px; height: 16px; gap: 1px; transform: none; }
+
+/* Loading window — small Win98 dialog with striped progress bar */
+.win98-loading {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, -50%);
+  width: 360px;
+}
+.win98-loading-body {
+  padding: 14px 16px 14px;
+  background: #c0c0c0;
+  color: #000000;
+  font-size: 13px;
+}
+.win98-loading-body p {
+  margin: 0 0 8px;
+}
+.win98-loading-sub {
+  color: #404040;
+  margin-bottom: 14px !important;
+}
+.win98-progress-outer {
+  height: 20px;
+  background: #ffffff;
+  border: 2px solid #808080;
+  border-right-color: #ffffff;
+  border-bottom-color: #ffffff;
+  box-shadow: inset 1px 1px 0 #000000, inset -1px -1px 0 #dfdfdf;
+  padding: 2px;
+  overflow: hidden;
+}
+.win98-progress-inner {
+  height: 100%;
+  width: 0%;
+  background: repeating-linear-gradient(
+    90deg,
+    #0a246a 0px,
+    #0a246a 10px,
+    #3a64aa 10px,
+    #3a64aa 14px
+  );
+  animation: win98-load 3s linear forwards;
+}
+@keyframes win98-load {
+  0%   { width: 0%; }
+  100% { width: 100%; }
+}
+
+/* Taskbar */
+.win98-taskbar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 26px;
+  background: #c0c0c0;
+  border-top: 2px solid #ffffff;
+  box-shadow: inset 0 -1px 0 #808080;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px;
+}
+.win98-start {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  background: #c0c0c0;
+  color: #000000;
+  border: 2px solid #ffffff;
+  border-right-color: #000000;
+  border-bottom-color: #000000;
+  box-shadow: inset 1px 1px 0 #dfdfdf, inset -1px -1px 0 #808080;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: default;
+}
+.win98-tray {
+  height: 20px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  background: #c0c0c0;
+  border: 1px solid #808080;
+  border-top-color: #ffffff;
+  border-left-color: #ffffff;
+  font-size: 11px;
+  color: #000000;
 }
 
 /* ---- Windows 98 form ---- */
