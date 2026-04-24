@@ -20,7 +20,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { ThreeEvent } from "@react-three/fiber";
-import { navigateWithFade } from "./route-transition";
+import { useSculpturePalette } from "./palette";
+import {
+  isShowcaseActive,
+  onShowcaseChange,
+  toggleShowcase,
+} from "./showcase-bus";
 import { TUNING } from "./tuning";
 import type { Placement } from "./placements";
 
@@ -76,11 +81,51 @@ const BUTTON = {
   // ---- Hitbox padding (world units) ----
   hitPaddingX: 0.35,
   hitPaddingY: 0.28,
+
+  // ---- Hover oscillation ----
+  /** Peak vertical wobble amplitude in world units. Button sways up/down
+   *  this many units when hovered. */
+  hoverOscillateAmp: 0.04,
+  /** Oscillation angular frequency (rad / sec). 2π ≈ 1Hz. */
+  hoverOscillateFreq: 6.5,
+  /** Lerp toward the current hover target (0 or 1) — gives a smooth
+   *  ramp-up/ramp-down instead of the wobble snapping on or off. */
+  hoverOscillateLerp: 0.08,
+
+  // ---- Back-arrow (shown when the showcase is open) ----
+  /** Per-frame lerp toward the active layout (text or arrow). Low = slow
+   *  smooth morph; higher = snappier. Bumped ~33% so the NOS PROJETS →
+   *  arrow morph lands at the same pace as the rest of the showcase
+   *  transition. */
+  morphLerp: 0.10,
+  /** Arrow geometry, world units. Shaft runs along x at buttonCenterY.
+   *  Smaller than the original NOS PROJETS label so it reads as a
+   *  secondary "back" control, not a headline. */
+  arrowShaftHalfLength: 0.38,
+  arrowShaftThickness: 0.07,
+  /** Chevron from tip (left end of shaft) opening to the right at this
+   *  half-length. */
+  arrowChevronLength: 0.25,
+  /** Vertical rise / drop of each chevron leg. */
+  arrowChevronRise: 0.15,
+  /** Thickness (perpendicular scatter) of each chevron leg. */
+  arrowChevronThickness: 0.06,
 } as const;
 
 export function ProjectsButton() {
   const [hover, setHover] = useState(false);
   const [placements, setPlacements] = useState<Placement[] | null>(null);
+  const [showcase, setShowcase] = useState<boolean>(() => isShowcaseActive());
+  const palette = useSculpturePalette();
+
+  useEffect(() => onShowcaseChange(setShowcase), []);
+
+  // Back-arrow placements used when the showcase is open — same shard
+  // count as the text so we can lerp 1:1 between the two layouts.
+  const arrowPlacements = useMemo<Placement[] | null>(() => {
+    if (!placements) return null;
+    return computeArrowPlacements(placements.length);
+  }, [placements]);
 
   // Sample text once, after fonts are ready.
   useLayoutEffect(() => {
@@ -124,91 +169,133 @@ export function ProjectsButton() {
   const material = useMemo(
     () =>
       new THREE.MeshPhysicalMaterial({
-        color: new THREE.Color(BUTTON.baseColor),
+        color: new THREE.Color(palette.projectsBase),
         metalness: 1,
         roughness: 0.3,
-        emissive: new THREE.Color(BUTTON.hoverEmissive),
+        emissive: new THREE.Color(palette.projectsEmissive),
         emissiveIntensity: 0,
         envMapIntensity: TUNING.envMapIntensity,
       }),
-    [],
+    // Created once — recreating would rebuild the InstancedMesh and
+    // clear its per-instance matrices. Colors mutate in place below.
+    [], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const wireGeometry = useMemo(
-    () =>
-      new THREE.CylinderGeometry(
-        BUTTON.wireRadius,
-        BUTTON.wireRadius,
-        1,
-        5,
-        1,
-        false,
-      ),
-    [],
+  const targetBase = useMemo(
+    () => new THREE.Color(palette.projectsBase),
+    [palette.projectsBase],
   );
-
-  const wireMaterial = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: new THREE.Color(BUTTON.wireColor),
-        metalness: 0.1,
-        roughness: 0.8,
-        transparent: true,
-        opacity: BUTTON.wireOpacity,
-      }),
-    [],
+  const targetEmissive = useMemo(
+    () => new THREE.Color(palette.projectsEmissive),
+    [palette.projectsEmissive],
   );
+  useFrame(() => {
+    material.color.lerp(targetBase, TUNING.paletteLerp);
+    material.emissive.lerp(targetEmissive, TUNING.paletteLerp);
+  });
 
-  // Precompute matrices: shard transforms + wire transforms. Both are
-  // static so we only need to write them once.
   const shardMeshRef = useRef<THREE.InstancedMesh>(null);
-  const wireMeshRef = useRef<THREE.InstancedMesh>(null);
+  const groupRef = useRef<THREE.Group>(null);
+  // Smoothed hover amplitude (0 = resting, 1 = full wobble). Lerped
+  // toward `hover ? 1 : 0` per frame so the oscillation fades in/out.
+  const hoverAmp = useRef(0);
+
+  // Rotations never change — precompute once from the text placements
+  // and reuse for both text and arrow layouts. Gives a consistent
+  // scattered look across the morph.
+  const baseQuats = useMemo<Float32Array | null>(() => {
+    if (!placements) return null;
+    const arr = new Float32Array(placements.length * 4);
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    for (let i = 0; i < placements.length; i++) {
+      const p = placements[i];
+      e.set(p.tilt, p.yaw, 0, "YXZ");
+      q.setFromEuler(e);
+      arr[i * 4] = q.x;
+      arr[i * 4 + 1] = q.y;
+      arr[i * 4 + 2] = q.z;
+      arr[i * 4 + 3] = q.w;
+    }
+    return arr;
+  }, [placements]);
+
+  // Live position per shard. On mount starts at the text layout; the
+  // useFrame below lerps it toward whichever target is active
+  // (text or arrow). This is what drives the visible morph animation.
+  const currentPos = useRef<Float32Array | null>(null);
 
   useLayoutEffect(() => {
     if (!placements) return;
     const shardMesh = shardMeshRef.current;
-    const wireMesh = wireMeshRef.current;
-    if (!shardMesh || !wireMesh) return;
+    if (!shardMesh) return;
+    const N = placements.length;
+    const buf = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      buf[i * 3] = placements[i].x;
+      buf[i * 3 + 1] = placements[i].y;
+      buf[i * 3 + 2] = placements[i].z;
+    }
+    currentPos.current = buf;
+    shardMesh.count = N;
+    shardMesh.frustumCulled = false;
+  }, [placements]);
+
+  // Per-frame: lerp each shard toward the active layout, then rewrite
+  // the instance matrices.
+  useFrame(() => {
+    const cur = currentPos.current;
+    const quats = baseQuats;
+    const shardMesh = shardMeshRef.current;
+    if (!placements || !cur || !quats || !shardMesh) return;
+
+    const targets = showcase && arrowPlacements ? arrowPlacements : placements;
+    const lerp = BUTTON.morphLerp;
 
     const m = new THREE.Matrix4();
     const pos = new THREE.Vector3();
-    const quat = new THREE.Quaternion();
+    const q = new THREE.Quaternion();
     const scale = new THREE.Vector3(1, 1, 1);
-    const euler = new THREE.Euler();
-    const ceilY = BUTTON.localCeilingY;
-    const halfShardH = BUTTON.shardHeight / 2;
 
     for (let i = 0; i < placements.length; i++) {
-      const p = placements[i];
-      pos.set(p.x, p.y, p.z);
-      euler.set(p.tilt, p.yaw, 0, "YXZ");
-      quat.setFromEuler(euler);
-      m.compose(pos, quat, scale);
+      const t = targets[i];
+      const i3 = i * 3;
+      cur[i3]     += (t.x - cur[i3])     * lerp;
+      cur[i3 + 1] += (t.y - cur[i3 + 1]) * lerp;
+      cur[i3 + 2] += (t.z - cur[i3 + 2]) * lerp;
+      const x = cur[i3];
+      const y = cur[i3 + 1];
+      const z = cur[i3 + 2];
+
+      const i4 = i * 4;
+      q.set(quats[i4], quats[i4 + 1], quats[i4 + 2], quats[i4 + 3]);
+      pos.set(x, y, z);
+      m.compose(pos, q, scale);
       shardMesh.setMatrixAt(i, m);
-
-      // Wire from (p.x, ceilY, p.z) down to (p.x, p.y + halfH, p.z).
-      const topY = p.y + halfShardH;
-      const length = ceilY - topY;
-      const midY = (ceilY + topY) / 2;
-      const wirePos = new THREE.Vector3(p.x, midY, p.z);
-      const wireScale = new THREE.Vector3(1, length, 1);
-      const wireQuat = new THREE.Quaternion(); // identity — wires are axis-aligned
-      m.compose(wirePos, wireQuat, wireScale);
-      wireMesh.setMatrixAt(i, m);
     }
-    shardMesh.count = placements.length;
-    wireMesh.count = placements.length;
-    shardMesh.instanceMatrix.needsUpdate = true;
-    wireMesh.instanceMatrix.needsUpdate = true;
-    shardMesh.frustumCulled = false;
-    wireMesh.frustumCulled = false;
-  }, [placements]);
 
-  // Lerp emissive intensity toward target on hover state.
-  useFrame(() => {
-    const target = hover ? BUTTON.hoverMaxEmissive : 0;
+    shardMesh.instanceMatrix.needsUpdate = true;
+  });
+
+  // Lerp emissive intensity + hover wobble amplitude, then apply the
+  // wobble to the group so all shards + wires sway together.
+  useFrame((state) => {
+    const emTarget = hover ? BUTTON.hoverMaxEmissive : 0;
     material.emissiveIntensity +=
-      (target - material.emissiveIntensity) * BUTTON.hoverLerp;
+      (emTarget - material.emissiveIntensity) * BUTTON.hoverLerp;
+
+    const ampTarget = hover ? 1 : 0;
+    hoverAmp.current +=
+      (ampTarget - hoverAmp.current) * BUTTON.hoverOscillateLerp;
+
+    const group = groupRef.current;
+    if (group) {
+      const t = state.clock.elapsedTime;
+      group.position.y =
+        hoverAmp.current *
+        Math.sin(t * BUTTON.hoverOscillateFreq) *
+        BUTTON.hoverOscillateAmp;
+    }
   });
 
   if (!placements) return null;
@@ -227,15 +314,11 @@ export function ProjectsButton() {
   };
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
-    navigateWithFade(BUTTON.href);
+    toggleShowcase();
   };
 
   return (
-    <group>
-      <instancedMesh
-        ref={wireMeshRef}
-        args={[wireGeometry, wireMaterial, placements.length]}
-      />
+    <group ref={groupRef}>
       <instancedMesh
         ref={shardMeshRef}
         args={[geometry, material, placements.length]}
@@ -337,4 +420,68 @@ function mulberry32(seed: number): () => number {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/**
+ * Generate shard placements that form a left-pointing back arrow:
+ * horizontal shaft + two chevron legs meeting at the tip. Output has
+ * the same length as `textCount` so each text shard has a 1:1 arrow
+ * target to lerp toward — rotations carry over unchanged.
+ */
+function computeArrowPlacements(textCount: number): Placement[] {
+  const rand = mulberry32(0x4a2e0b1d);
+  // Sit a touch below where the "NOS PROJETS" label lived so the arrow
+  // reads as a secondary/back affordance, not a drop-in replacement.
+  const cy = TUNING.buttonCenterY - 0.15;
+  const shaftHalf = BUTTON.arrowShaftHalfLength;
+  const shaftThick = BUTTON.arrowShaftThickness;
+  const chevLen = BUTTON.arrowChevronLength;
+  const chevRise = BUTTON.arrowChevronRise;
+  const chevThick = BUTTON.arrowChevronThickness;
+  const tipX = -shaftHalf;
+
+  // Split: 50% shaft, 25% upper chevron, 25% lower chevron.
+  const shaftCount = Math.floor(textCount * 0.5);
+  const upperCount = Math.floor(textCount * 0.25);
+  const lowerCount = textCount - shaftCount - upperCount;
+
+  const out: Placement[] = new Array(textCount);
+
+  for (let i = 0; i < shaftCount; i++) {
+    const u = rand();
+    out[i] = {
+      x: tipX + u * (shaftHalf * 2),
+      y: cy + (rand() - 0.5) * shaftThick,
+      z: (rand() - 0.5) * 0.15,
+      yaw: (rand() - 0.5) * 2 * BUTTON.yawJitter,
+      tilt: (rand() - 0.5) * 2 * BUTTON.tiltJitter,
+    };
+  }
+  // Upper chevron: tip → (tipX + chevLen, cy + chevRise)
+  for (let i = 0; i < upperCount; i++) {
+    const u = rand();
+    const bx = tipX + u * chevLen;
+    const by = cy + u * chevRise;
+    out[shaftCount + i] = {
+      x: bx + (rand() - 0.5) * chevThick * 0.7,
+      y: by + (rand() - 0.5) * chevThick,
+      z: (rand() - 0.5) * 0.15,
+      yaw: (rand() - 0.5) * 2 * BUTTON.yawJitter,
+      tilt: (rand() - 0.5) * 2 * BUTTON.tiltJitter,
+    };
+  }
+  // Lower chevron: tip → (tipX + chevLen, cy - chevRise)
+  for (let i = 0; i < lowerCount; i++) {
+    const u = rand();
+    const bx = tipX + u * chevLen;
+    const by = cy - u * chevRise;
+    out[shaftCount + upperCount + i] = {
+      x: bx + (rand() - 0.5) * chevThick * 0.7,
+      y: by + (rand() - 0.5) * chevThick,
+      z: (rand() - 0.5) * 0.15,
+      yaw: (rand() - 0.5) * 2 * BUTTON.yawJitter,
+      tilt: (rand() - 0.5) * 2 * BUTTON.tiltJitter,
+    };
+  }
+  return out;
 }

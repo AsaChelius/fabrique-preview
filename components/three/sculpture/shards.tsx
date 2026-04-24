@@ -12,7 +12,7 @@
  * only thing that moves.
  */
 
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { TUNING } from "./tuning";
@@ -51,8 +51,18 @@ export function Shards({ placements, color, state, stateStart }: ShardsProps) {
         iridescenceIOR: TUNING.iridescenceIOR,
         envMapIntensity: TUNING.envMapIntensity,
       }),
-    [color],
+    // Intentionally created once — the InstancedMesh below uses this in
+    // its constructor `args`, and recreating the material would rebuild
+    // the mesh and wipe per-instance matrices. The color is lerped
+    // in place via useFrame below so light↔dark transitions animate
+    // instead of snapping.
+    [], // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  const targetColor = useMemo(() => new THREE.Color(color), [color]);
+  useFrame(() => {
+    material.color.lerp(targetColor, TUNING.paletteLerp);
+  });
 
   // Precompute per-shard base quaternion (rotation never changes). Stored
   // flat as xyzw quads so we can read without allocating.

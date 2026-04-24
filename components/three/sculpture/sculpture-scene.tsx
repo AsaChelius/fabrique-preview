@@ -14,15 +14,18 @@
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, MeshReflectorMaterial } from "@react-three/drei";
-import { Suspense, useEffect, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef, type Ref } from "react";
 import * as THREE from "three";
 import type { PerspectiveCamera as PerspectiveCameraImpl } from "three";
 import { SuspendedCloud } from "./suspended-cloud";
 import { ProjectsButton } from "./projects-button";
+import { DustMotes } from "./overhead";
+import { useSculpturePalette, type SculpturePalette } from "./palette";
 import { TUNING } from "./tuning";
 import { onReveal } from "./reveal-bus";
 
 export function SculptureScene() {
+  const palette = useSculpturePalette();
   return (
     <Canvas
       dpr={[1, 2]}
@@ -40,35 +43,87 @@ export function SculptureScene() {
       }}
       gl={{ antialias: true, alpha: false }}
     >
-      <color attach="background" args={[TUNING.backgroundColor]} />
-
       <Suspense fallback={null}>
         {/* "warehouse" gives shards contrasty darker bays to reflect, so
             metal reads as metal against white. "studio" is pure soft white
             which makes chrome look like paper. */}
         <Environment preset="warehouse" background={false} environmentIntensity={TUNING.envMapIntensity} />
 
-        {/* Strong key light — metal needs hard specular hotspots to look
-            metallic. Without this everything goes matte against white. */}
-        <directionalLight
-          position={[4, 5, 6]}
-          intensity={2.4}
-          color="#fff4e0"
-        />
-        {/* Cool fill from the opposite side — picks out edges the key misses. */}
-        <directionalLight position={[-5, 2, 3]} intensity={0.55} color="#d0dbee" />
-        {/* Back rim — separates the cloud from the white. */}
-        <directionalLight position={[0, 2, -6]} intensity={0.9} color="#ffffff" />
+        <AnimatedSceneColors palette={palette} />
         {/* Faint ambient so back-facing shards never crush to black. */}
         <ambientLight intensity={0.22} />
 
         <ResponsiveCamera />
         <RevealCamera />
+        <DustMotes />
         <SuspendedCloud />
         <ProjectsButton />
-        <ReflectiveFloor />
+        <ReflectiveFloor palette={palette} />
       </Suspense>
     </Canvas>
+  );
+}
+
+/**
+ * Lerps the scene background and 3 directional-light colors toward the
+ * current palette targets. Replaces the instant prop-swap path so the
+ * light↔dark toggle animates instead of snapping.
+ */
+function AnimatedSceneColors({ palette }: { palette: SculpturePalette }) {
+  const { scene } = useThree();
+  const keyRef = useRef<THREE.DirectionalLight>(null);
+  const fillRef = useRef<THREE.DirectionalLight>(null);
+  const rimRef = useRef<THREE.DirectionalLight>(null);
+
+  const targetBg = useMemo(
+    () => new THREE.Color(palette.background),
+    [palette.background],
+  );
+  const targetKey = useMemo(
+    () => new THREE.Color(palette.keyLight),
+    [palette.keyLight],
+  );
+  const targetFill = useMemo(
+    () => new THREE.Color(palette.fillLight),
+    [palette.fillLight],
+  );
+  const targetRim = useMemo(
+    () => new THREE.Color(palette.rimLight),
+    [palette.rimLight],
+  );
+
+  // Ensure scene.background is a stable THREE.Color instance we can lerp.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!(scene.background instanceof THREE.Color)) {
+      scene.background = targetBg.clone();
+    }
+  }, []);
+
+  useFrame(() => {
+    const lerp = TUNING.paletteLerp;
+    if (scene.background instanceof THREE.Color) {
+      scene.background.lerp(targetBg, lerp);
+    }
+    if (keyRef.current) keyRef.current.color.lerp(targetKey, lerp);
+    if (fillRef.current) fillRef.current.color.lerp(targetFill, lerp);
+    if (rimRef.current) rimRef.current.color.lerp(targetRim, lerp);
+  });
+
+  return (
+    <>
+      {/* Strong key light — metal needs hard specular hotspots to look
+          metallic. Without this everything goes matte against white. */}
+      <directionalLight
+        ref={keyRef}
+        position={[4, 5, 6]}
+        intensity={2.4}
+      />
+      {/* Cool fill from the opposite side — picks out edges the key misses. */}
+      <directionalLight ref={fillRef} position={[-5, 2, 3]} intensity={0.55} />
+      {/* Back rim — separates the cloud from the white. */}
+      <directionalLight ref={rimRef} position={[0, 2, -6]} intensity={0.9} />
+    </>
   );
 }
 
@@ -141,12 +196,17 @@ function RevealCamera() {
     });
   }, []);
 
-  useFrame(() => {
+  useFrame((state) => {
     const started = startRef.current;
     const cam = camera as PerspectiveCameraImpl;
     if (started == null) {
-      // Idle: lock to sweet-spot so the silhouette stays resolved.
-      cam.position.set(0, 0, cam.position.z);
+      // Idle: sit near the sweet-spot with a very slight mouse parallax so
+      // the sculpture feels alive. Offset stays small enough that the
+      // anamorphic silhouette remains readable.
+      const targetX = state.pointer.x * TUNING.tiltAmountX;
+      const targetY = state.pointer.y * TUNING.tiltAmountY;
+      cam.position.x += (targetX - cam.position.x) * TUNING.tiltLerp;
+      cam.position.y += (targetY - cam.position.y) * TUNING.tiltLerp;
       cam.lookAt(0, 0, 0);
       return;
     }
@@ -177,27 +237,61 @@ function RevealCamera() {
  * from underneath and blends that reflection in at low strength, so what
  * you see is a ghost of the hanging shards mirrored on the ground.
  */
-function ReflectiveFloor() {
+function ReflectiveFloor({ palette }: { palette: SculpturePalette }) {
+  const matRef = useRef<THREE.Material & { color: THREE.Color }>(null);
+  const targetColor = useMemo(
+    () => new THREE.Color(palette.floor),
+    [palette.floor],
+  );
+  const initialColor = useRef(palette.floor).current;
+  useFrame(() => {
+    if (matRef.current) matRef.current.color.lerp(targetColor, TUNING.paletteLerp);
+  });
+  // drei's MeshReflectorMaterial captures most shader uniforms at
+  // construction time, so we key the element on the full reflection
+  // profile — remounts give us clean swaps between modes.
+  //
+  // Bonus: in dark mode we swap to a plain meshBasicMaterial because
+  // MeshReflectorMaterial's blurred render of the scene (even with a
+  // pure-black base color and no envmap) bleeds a grey haze onto the
+  // floor. The "reflection" we still want in dark mode is rendered
+  // separately by <MirroredSculpture /> below as a scaled-flipped copy
+  // of the shards — crisp, no grey, no reflector math.
+  const reflective = palette.floorMirror > 0.01 && palette.floorMixStrength > 0.05 && palette.floor !== "#000000";
+  const matKey = reflective
+    ? `ref-${palette.floorMirror.toFixed(2)}-${palette.floorMixStrength.toFixed(2)}-${palette.floorMixContrast.toFixed(2)}-${palette.floorReflectBlur.toFixed(2)}-${palette.floorMixBlur.toFixed(2)}`
+    : "basic";
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, TUNING.floorY, 0]}>
       {/* Generous extent so reflections don't clip at the edges when the
           camera pans. 40x40 world units is plenty. */}
       <planeGeometry args={[40, 40]} />
-      <MeshReflectorMaterial
-        color={TUNING.floorColor}
-        mirror={TUNING.floorReflectStrength}
-        blur={[TUNING.floorReflectBlur, TUNING.floorReflectBlur / 3]}
-        mixBlur={TUNING.floorMixBlur}
-        mixStrength={TUNING.floorMixStrength}
-        resolution={1024}
-        /* metalness=0 + high base roughness kills the directional-light
-           specular hotspot (the "glare" in the center of the reflection).
-           The mirror reflection still comes through via mixStrength because
-           that blend is separate from the base material's Phong response. */
-        metalness={0}
-        roughness={1.0}
-        depthScale={0}
-      />
+      {reflective ? (
+        <MeshReflectorMaterial
+          key={matKey}
+          ref={matRef as unknown as Ref<THREE.Material>}
+          color={initialColor}
+          mirror={palette.floorMirror}
+          blur={[palette.floorReflectBlur, palette.floorReflectBlur / 3]}
+          mixBlur={palette.floorMixBlur}
+          mixStrength={palette.floorMixStrength}
+          mixContrast={palette.floorMixContrast}
+          resolution={1024}
+          /* metalness=0 + high base roughness kills the directional-light
+             specular hotspot (the "glare" in the center of the reflection).
+             The mirror reflection still comes through via mixStrength because
+             that blend is separate from the base material's Phong response. */
+          metalness={0}
+          roughness={1.0}
+          depthScale={0}
+        />
+      ) : (
+        <meshBasicMaterial
+          key={matKey}
+          ref={matRef as unknown as Ref<THREE.Material>}
+          color={initialColor}
+        />
+      )}
     </mesh>
   );
 }

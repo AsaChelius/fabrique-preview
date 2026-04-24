@@ -1115,6 +1115,140 @@ body.sculpture-mode .route-nav {
   display: block;
 }
 
+/* Dark mode — colors are swapped inside the R3F scene (CSS `filter` is
+   unreliable on WebGL canvases). Here we only restyle the buttons and
+   CSS-painted backgrounds so the chrome flips with the theme. */
+body.sculpture-dark,
+body.sculpture-dark .sculpture-root {
+  background: #050706;
+}
+body.sculpture-dark main > button {
+  color: #e6e4de;
+  border-color: #6b6e76;
+}
+
+/* ---- Showcase overlay ---
+   Triggered by clicking NOS PROJETS. Letter shards morph into five card
+   outlines (handled in the R3F scene); this overlay fades in on top
+   with the actual project details, one card per outline. */
+.sculpture-showcase-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7vh 3vw;
+  animation: sculpture-showcase-fade 280ms ease-out both;
+  pointer-events: none;
+}
+.sculpture-showcase-overlay > * {
+  pointer-events: auto;
+}
+@keyframes sculpture-showcase-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.sculpture-showcase-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1rem;
+  width: 100%;
+  max-width: 1280px;
+  align-items: stretch;
+}
+.sculpture-showcase-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 1.1rem 1rem;
+  background: rgba(250, 248, 243, 0.82);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(74, 77, 85, 0.35);
+  color: #1a1a1a;
+  font-family: inherit;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  min-height: 260px;
+}
+.sculpture-showcase-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  border-bottom: 1px solid rgba(74, 77, 85, 0.2);
+  padding-bottom: 0.45rem;
+}
+.sculpture-showcase-card h3 {
+  margin: 0;
+  font-size: 0.88rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.sculpture-showcase-card .year {
+  font-size: 0.65rem;
+  letter-spacing: 0.15em;
+  color: #6b6e76;
+}
+.sculpture-showcase-card .tagline {
+  margin: 0;
+  font-style: italic;
+  color: #3a3d44;
+}
+.sculpture-showcase-card .desc {
+  margin: 0;
+  flex: 1;
+}
+.sculpture-showcase-card .tech {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.sculpture-showcase-card .tech li {
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid rgba(74, 77, 85, 0.35);
+}
+.sculpture-showcase-close {
+  position: fixed;
+  top: 2rem;
+  left: 2rem;
+  z-index: 31;
+  width: 2.4rem;
+  height: 2.4rem;
+  background: transparent;
+  border: 1px solid #6b6e76;
+  color: #2c2e33;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+}
+body.sculpture-dark .sculpture-showcase-card {
+  background: rgba(18, 18, 20, 0.82);
+  color: #e8e6e0;
+  border-color: rgba(230, 228, 222, 0.25);
+}
+body.sculpture-dark .sculpture-showcase-card header {
+  border-bottom-color: rgba(230, 228, 222, 0.2);
+}
+body.sculpture-dark .sculpture-showcase-card .year,
+body.sculpture-dark .sculpture-showcase-card .tagline {
+  color: #a8a8a8;
+}
+body.sculpture-dark .sculpture-showcase-card .tech li {
+  border-color: rgba(230, 228, 222, 0.25);
+}
+body.sculpture-dark .sculpture-showcase-close {
+  color: #e6e4de;
+}
+
 /* Replay button — small, editorial, bottom-center so it doesn't compete
    with the sculpture. High z so it sits above the canvas. */
 .sculpture-replay {

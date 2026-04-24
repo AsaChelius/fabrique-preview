@@ -10,18 +10,41 @@
  *   - Provide a small "Replay" button that re-kicks the reveal animation.
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { SculptureScene } from "./sculpture-scene";
 import { triggerReveal } from "./reveal-bus";
 import { RouteTransition } from "./route-transition";
+import { setShowcase } from "./showcase-bus";
+
+const pillStyle = {
+  position: "fixed" as const,
+  zIndex: 20,
+  background: "transparent",
+  border: "1px solid #6b6e76",
+  color: "#2c2e33",
+  padding: "0.55rem 1.4rem",
+  fontSize: "0.72rem",
+  letterSpacing: "0.22em",
+  textTransform: "uppercase" as const,
+  cursor: "pointer",
+  fontFamily: "inherit",
+};
 
 export function SculptureRoute() {
+  const [dark, setDark] = useState(false);
+
   useEffect(() => {
     document.body.classList.add("sculpture-mode");
     return () => {
       document.body.classList.remove("sculpture-mode");
+      document.body.classList.remove("sculpture-dark");
+      setShowcase(false);
     };
   }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle("sculpture-dark", dark);
+  }, [dark]);
 
   return (
     <main>
@@ -32,24 +55,17 @@ export function SculptureRoute() {
         type="button"
         onClick={() => triggerReveal()}
         aria-label="Replay reveal animation"
-        style={{
-          position: "fixed",
-          bottom: "2rem",
-          left: "50%",
-          transform: "translateX(-50%)",
-          zIndex: 20,
-          background: "transparent",
-          border: "1px solid #6b6e76",
-          color: "#2c2e33",
-          padding: "0.55rem 1.4rem",
-          fontSize: "0.72rem",
-          letterSpacing: "0.22em",
-          textTransform: "uppercase",
-          cursor: "pointer",
-          fontFamily: "inherit",
-        }}
+        style={{ ...pillStyle, bottom: "2rem", left: "50%", transform: "translateX(-50%)" }}
       >
         Replay
+      </button>
+      <button
+        type="button"
+        onClick={() => setDark((d) => !d)}
+        aria-label="Toggle dark mode"
+        style={{ ...pillStyle, top: "2rem", right: "2rem" }}
+      >
+        {dark ? "Light" : "Dark"}
       </button>
       <RouteTransition />
     </main>

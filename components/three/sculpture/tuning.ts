@@ -75,8 +75,10 @@ export const TUNING = {
   fov: 28,
   /** Word half-width in world units. Wider now that FABRIQUE is 1 row. */
   wordHalfWidth: 5.4,
-  /** Margin (world units) added around the cloud when fitting FOV to it. */
-  fitMargin: 0.6,
+  /** Margin (world units) added around the cloud when fitting FOV to it.
+   *  Bumped up so the sculpture sits with more breathing room — reads as
+   *  if the camera pulled back a step. */
+  fitMargin: 1.8,
   /** How deep the cloud extends along the viewing ray (+/- around z=0).
    *  Bigger = more obvious 3D when the camera moves off-axis. */
   cloudDepth: 3.0,
@@ -158,14 +160,72 @@ export const TUNING = {
    *  zero at cursorRadius. */
   cursorStrength: 14,
   /** Pendulum-style stiffness: spring constant = pendulumGravity / wireLen.
-   *  Longer wires feel more sluggish (correct pendulum behavior). */
-  pendulumGravity: 26,
-  /** Velocity damping, per second. Tuned for near-critical damping so the
-   *  sculpture settles within ~1s of the cursor leaving — oscillation
-   *  reads as "recovery" not "ringing". */
-  physicsDamping: 5.0,
+   *  Longer wires feel more sluggish (correct pendulum behavior). Scaled
+   *  up ~1.78× from the original 26 so the showcase morph lands ~33%
+   *  faster — spring period ∝ 1/√k, so k × 1.78 → period × 0.75. */
+  pendulumGravity: 46,
+  /** Velocity damping, per second. Scaled with pendulumGravity (√1.78 ≈
+   *  1.33) to preserve the same near-critical damping character. */
+  physicsDamping: 6.65,
   /** Cap on dt to prevent integration blow-ups on slow frames. */
   physicsMaxDt: 1 / 30,
+
+  // ---- Theme transition ----------------------------------------------
+  /** Per-frame lerp factor used by materials (shards, dust, button,
+   *  lights, scene background) to animate color when light↔dark mode
+   *  toggles. ~0.06 = ~600ms to cover 90% of the gap. Lower = slower. */
+  paletteLerp: 0.06,
+
+  // ---- Overhead (ceiling beam, light cones, dust motes) --------------
+  /** Subtle architectural beam just above the visible sculpture. Sells the
+   *  "piece hangs from something" read. Placed within the camera frustum
+   *  so it actually shows (the physics `ceilingY` is off-screen). */
+  ceilingBeamY: 2.15,
+  ceilingBeamWidth: 11,
+  ceilingBeamThickness: 0.06,
+  ceilingBeamDepth: 0.28,
+  ceilingBeamColor: "#c9c6bc",
+
+  /** Overhead light cones — warm cream tint on the white background, normal
+   *  blending (additive is invisible on near-white). Tip sits at the top,
+   *  base fans toward the sculpture. */
+  lightConeTopY: 2.08,
+  lightConeHeight: 4.0,
+  lightConeRadius: 1.35,
+  /** [x, z] per cone. Three evenly-spread sources over the wordmark. */
+  lightConePositions: [
+    [-2.6, 0],
+    [0, 0.15],
+    [2.6, 0],
+  ],
+  lightConeColor: "#fff1cf",
+  lightConeOpacity: 0.16,
+
+  /** Dust motes — slow-drifting particles in the upper gallery volume. */
+  dustCount: 160,
+  dustSize: 0.028,
+  dustColor: "#b5b1a2",
+  dustOpacity: 0.55,
+  dustAreaWidth: 10,
+  dustAreaHeight: 3.4,
+  dustAreaDepth: 3.0,
+  /** Y center of the dust volume. */
+  dustAreaY: 0.6,
+  /** Horizontal + depth drift speed (world units / sec). */
+  dustDrift: 0.06,
+  /** Gentle downward settling speed (world units / sec). */
+  dustFall: 0.035,
+
+  // ---- Idle mouse parallax -------------------------------------------
+  /** Peak camera X offset (world units) when mouse is at the horizontal edge.
+   *  Very slight — the anamorphic illusion degrades quickly with camera
+   *  displacement, so we keep this under ~0.1 to preserve the wordmark read. */
+  tiltAmountX: 0.09,
+  /** Peak camera Y offset (world units) when mouse is at the vertical edge. */
+  tiltAmountY: 0.06,
+  /** Per-frame lerp factor toward the target tilted position. Low = smooth
+   *  follow, never a snap. */
+  tiltLerp: 0.18,
 
   // ---- Reveal animation ----------------------------------------------
   /** Duration of the camera pan from overture pose to sweet-spot (ms). */
