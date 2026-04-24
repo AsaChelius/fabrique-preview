@@ -1090,3 +1090,57 @@ body {
   color: #202020;
 }
 
+/* ---- Sculpture title mode ----
+   The anamorphic hero is a full-viewport white gallery. Hides all the
+   dark-theme chrome (starfield backdrop, brand wordmark, route nav) while
+   this class is on <body>. Toggled by the /title client wrapper. */
+body.sculpture-mode {
+  background: #faf8f3;
+}
+body.sculpture-mode .site-backdrop,
+body.sculpture-mode .brand,
+body.sculpture-mode .route-nav {
+  display: none !important;
+}
+.sculpture-root {
+  position: fixed;
+  inset: 0;
+  background: #faf8f3;
+  z-index: 1;
+}
+.sculpture-root > canvas,
+.sculpture-root > div {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+/* Replay button — small, editorial, bottom-center so it doesn't compete
+   with the sculpture. High z so it sits above the canvas. */
+.sculpture-replay {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  background: transparent;
+  border: 1px solid #6b6e76;
+  color: #2c2e33;
+  padding: 0.55rem 1.4rem;
+  font-family: var(--font-sans), Inter, system-ui, sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+.sculpture-replay:hover {
+  background: #1f2024;
+  color: #faf8f3;
+  border-color: #1f2024;
+}
+.sculpture-replay:focus-visible {
+  outline: 2px solid #1f2024;
+  outline-offset: 3px;
+}
+
