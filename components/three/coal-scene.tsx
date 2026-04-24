@@ -652,6 +652,12 @@ function PixelNebula({
   useFrame((_, delta) => {
     if (ref.current) ref.current.rotation.z += delta * 0.008;
   });
+  const baseScale = useRef(scale);
+  useFrame(({ clock }) => {
+    if (!ref.current) return;
+    const pulse = 1 + Math.sin(clock.elapsedTime * 0.5 + seed) * 0.05;
+    ref.current.scale.setScalar(baseScale.current * pulse);
+  });
 
   return (
     <points ref={ref} position={position} scale={scale}>
@@ -1019,8 +1025,15 @@ function EmissionPillar({
     }
     return buildPointsGeometry(rows);
   }, [seed]);
-  useFrame((_, delta) => {
-    if (ref.current) ref.current.rotation.z += delta * spin;
+  const baseScale = useRef(scale);
+  useFrame(({ clock }, delta) => {
+    if (!ref.current) return;
+    ref.current.rotation.z += delta * spin;
+    // Gentle Y-axis wobble — the pillars look alive (being sculpted by stellar wind).
+    ref.current.rotation.y = Math.sin(clock.elapsedTime * 0.25 + seed) * 0.05;
+    // Slow breathing — subtle scale pulse ±3%.
+    const breathe = 1 + Math.sin(clock.elapsedTime * 0.4 + seed) * 0.03;
+    ref.current.scale.setScalar(baseScale.current * breathe);
   });
   return (
     <points ref={ref} position={position} scale={scale}>
@@ -1112,11 +1125,15 @@ function SupernovaRemnant({
     }
     return buildPointsGeometry(rows);
   }, [seed]);
-  useFrame((_, delta) => {
-    if (ref.current) {
-      ref.current.rotation.x += delta * spin;
-      ref.current.rotation.y += delta * spin * 0.7;
-    }
+  const baseScale = useRef(scale);
+  useFrame(({ clock }, delta) => {
+    if (!ref.current) return;
+    ref.current.rotation.x += delta * spin;
+    ref.current.rotation.y += delta * spin * 0.7;
+    // Pulsing expansion — supernova remnant is literally expanding; the
+    // scale slowly breathes ±6% over a 4-second period.
+    const pulse = 1 + Math.sin(clock.elapsedTime * 0.6 + seed) * 0.06;
+    ref.current.scale.setScalar(baseScale.current * pulse);
   });
   return (
     <points ref={ref} position={position} scale={scale}>
@@ -1207,23 +1224,35 @@ function RingNebula({
     }
     return buildPointsGeometry(rows);
   }, [seed, inner, outer]);
-  useFrame((_, delta) => {
+  const outerRef = useRef<THREE.Group>(null);
+  const baseScale = useRef(scale);
+  useFrame(({ clock }, delta) => {
     if (ref.current) ref.current.rotation.z += delta * spin;
+    // Outer group handles scale breathing so the tilt transform on the
+    // points group stays clean.
+    if (outerRef.current) {
+      const breathe = 1 + Math.sin(clock.elapsedTime * 0.35 + seed) * 0.04;
+      outerRef.current.scale.setScalar(baseScale.current * breathe);
+      // Gentle precession — the ring axis wobbles slightly over time.
+      outerRef.current.rotation.y = Math.sin(clock.elapsedTime * 0.15 + seed) * 0.08;
+    }
   });
   return (
-    <points ref={ref} position={position} scale={scale} rotation={[tiltX, 0, 0]}>
-      <primitive object={geometry} attach="geometry" />
-      <pointsMaterial
-        size={3}
-        vertexColors
-        transparent
-        opacity={1}
-        blending={THREE.AdditiveBlending}
-        depthWrite={false}
-        sizeAttenuation={false}
-        toneMapped={false}
-      />
-    </points>
+    <group ref={outerRef} position={position} scale={scale}>
+      <points ref={ref} rotation={[tiltX, 0, 0]}>
+        <primitive object={geometry} attach="geometry" />
+        <pointsMaterial
+          size={3}
+          vertexColors
+          transparent
+          opacity={1}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          sizeAttenuation={false}
+          toneMapped={false}
+        />
+      </points>
+    </group>
   );
 }
 
@@ -1279,8 +1308,18 @@ function BipolarNebula({
     }
     return buildPointsGeometry(rows);
   }, [seed]);
-  useFrame((_, delta) => {
-    if (ref.current) ref.current.rotation.z += delta * spin;
+  const baseScale = useRef(scale);
+  useFrame(({ clock }, delta) => {
+    if (!ref.current) return;
+    ref.current.rotation.z += delta * spin;
+    // Lobes "breathe" asymmetrically on X and Y — the butterfly flutters.
+    const xBreath = 1 + Math.sin(clock.elapsedTime * 0.5 + seed) * 0.05;
+    const yBreath = 1 + Math.sin(clock.elapsedTime * 0.7 + seed + 1) * 0.04;
+    ref.current.scale.set(
+      baseScale.current * xBreath,
+      baseScale.current * yBreath,
+      baseScale.current,
+    );
   });
   return (
     <points ref={ref} position={position} scale={scale}>
@@ -1341,8 +1380,14 @@ function ReflectionCloud({
     }
     return buildPointsGeometry(rows);
   }, [seed, tints]);
-  useFrame((_, delta) => {
-    if (ref.current) ref.current.rotation.z += delta * 0.0015;
+  const baseScale = useRef(scale);
+  useFrame(({ clock }, delta) => {
+    if (!ref.current) return;
+    ref.current.rotation.z += delta * 0.002;
+    ref.current.rotation.x = Math.sin(clock.elapsedTime * 0.1 + seed) * 0.1;
+    // Drift breathing — clouds feel alive, slowly swelling.
+    const breathe = 1 + Math.sin(clock.elapsedTime * 0.22 + seed) * 0.04;
+    ref.current.scale.setScalar(baseScale.current * breathe);
   });
   return (
     <points ref={ref} position={position} scale={scale}>
@@ -1363,70 +1408,115 @@ function ReflectionCloud({
 
 /** MajorNebulas — the screenwide stage-2 layer. Each instance is placed at
     a depth that puts it well behind the planets and at a scale large enough
-    to fill a meaningful fraction of the frustum. */
+    to fill a meaningful fraction of the frustum. All have breathing/
+    rotation animation per-component. */
 function MajorNebulas() {
   return (
     <>
-      {/* Pillars of Creation — huge, center-left, warm+teal */}
+      {/* Pillars of Creation — huge, left side, warm rust + teal */}
       <EmissionPillar
-        position={[-14, 2, -42]}
-        scale={4.5}
+        position={[-20, 2, -46]}
+        scale={7}
         seed={17}
         spin={0.0008}
       />
-      {/* Supernova remnant — right of center, bright shell */}
-      <SupernovaRemnant
-        position={[16, 6, -48]}
+      {/* Second pillar cluster — different colors, far right */}
+      <EmissionPillar
+        position={[22, -4, -52]}
         scale={6}
+        seed={31}
+        spin={-0.001}
+      />
+      {/* Supernova remnant — center, bright cyan core with red filaments */}
+      <SupernovaRemnant
+        position={[8, 6, -48]}
+        scale={9}
         seed={29}
         spin={0.003}
       />
+      {/* Second supernova — much farther back, tiny on screen */}
+      <SupernovaRemnant
+        position={[-16, 12, -72]}
+        scale={5}
+        seed={59}
+        spin={-0.002}
+      />
       {/* Ring nebula — top-right, pink/cyan */}
       <RingNebula
-        position={[20, 10, -52]}
-        scale={5}
+        position={[26, 12, -54]}
+        scale={7}
         seed={51}
         tiltX={0.9}
         spin={0.01}
         inner="#ff70c8"
         outer="#60d8ff"
       />
-      {/* Second ring nebula — very far back, centered, huge, green/violet */}
+      {/* Ring — center-back, huge, green/violet (HUGE screenwide anchor) */}
       <RingNebula
-        position={[-4, -2, -66]}
-        scale={9}
+        position={[-2, -4, -68]}
+        scale={14}
         seed={67}
         tiltX={0.5}
         spin={-0.008}
         inner="#80ffb0"
         outer="#b080ff"
       />
-      {/* Butterfly / bipolar — mid-distance, lower-left */}
+      {/* Ring — gold/magenta, off left */}
+      <RingNebula
+        position={[-24, 10, -58]}
+        scale={6}
+        seed={91}
+        tiltX={1.1}
+        spin={0.014}
+        inner="#ffd060"
+        outer="#ff40a0"
+      />
+      {/* Butterfly / bipolar — mid-distance, lower-left, blue→pink */}
       <BipolarNebula
-        position={[-18, -6, -40]}
-        scale={4.5}
+        position={[-18, -8, -42]}
+        scale={6}
         seed={83}
         spin={0.004}
       />
-      {/* Reflection cloud — screen-filling backdrop, multi-color */}
+      {/* Second butterfly — hot red-orange, far right */}
+      <BipolarNebula
+        position={[18, -12, -50]}
+        scale={5}
+        seed={97}
+        spin={-0.005}
+      />
+      {/* Reflection cloud — screen-filling backdrop, 4-color palette */}
       <ReflectionCloud
-        position={[0, 0, -58]}
-        scale={8}
+        position={[0, 0, -62]}
+        scale={14}
         seed={101}
         tints={["#6080ff", "#ff80a0", "#ffc060", "#80ffe0"]}
       />
-      {/* Second reflection cloud — offset, cooler palette */}
+      {/* Reflection — cooler, upper-left */}
       <ReflectionCloud
-        position={[-12, 10, -56]}
-        scale={5}
+        position={[-14, 14, -60]}
+        scale={8}
         seed={137}
-        tints={["#4060c0", "#7040a0", "#80a0ff"]}
+        tints={["#4060c0", "#7040a0", "#80a0ff", "#4080ff"]}
       />
-      {/* Cat's-Eye pixel nebula (reusing the existing generator) — far left,
-          adds detail variety alongside the new morphologies. */}
+      {/* Reflection — warm, lower-right */}
+      <ReflectionCloud
+        position={[16, -14, -58]}
+        scale={7}
+        seed={163}
+        tints={["#ff5060", "#ffa040", "#ffd080", "#ff80c0"]}
+      />
+      {/* Reflection — exotic green/teal, overhead */}
+      <ReflectionCloud
+        position={[4, 18, -64]}
+        scale={6}
+        seed={181}
+        tints={["#40ffb0", "#20e0c0", "#80ff60", "#a0ffe0"]}
+      />
+      {/* Cat's-Eye pixel nebulas — detail variety */}
       <PixelNebula
-        position={[24, -12, -46]}
-        scale={2.6}
+        position={[28, -16, -50]}
+        scale={4}
         seed={7}
         warm="#ff9068"
         cool="#88b8ff"
@@ -1434,13 +1524,22 @@ function MajorNebulas() {
         opacity={1}
       />
       <PixelNebula
-        position={[-26, 4, -54]}
-        scale={3.2}
+        position={[-28, 6, -56]}
+        scale={4.5}
         seed={23}
         warm="#ffb080"
         cool="#b0a0ff"
         pointSize={2.8}
         opacity={0.95}
+      />
+      <PixelNebula
+        position={[10, 16, -70]}
+        scale={3.5}
+        seed={199}
+        warm="#ff40a0"
+        cool="#40ffff"
+        pointSize={2.6}
+        opacity={0.9}
       />
     </>
   );
