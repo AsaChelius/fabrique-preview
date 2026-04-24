@@ -23,11 +23,17 @@ export type SoundName =
   | "orb-chime"   // icosa: three-tone bright bell stack
   | "orb-wobble"  // torus: vibrato sine wobble
   | "orb-thump"   // dodec: pitched-down triangle thud
-  // Phone UX voices (contact route).
+  // Phone UX voices (legacy — harmless to keep).
   | "phone-key"   // DTMF-ish two-tone key press
   | "phone-dial"  // dial-tone hum
   | "phone-hang"  // hangup click
-  | "alien";      // alien speech burst — filtered noise + warble
+  | "alien"       // alien speech burst — filtered noise + warble
+  // Contact-scene (retro CRT + Win98) voices
+  | "crt-on"      // power-on zap — rising whine + click
+  | "crt-off"     // collapse-to-dot descent
+  | "type-key"    // keyboard tick
+  | "win98-click" // OK button click
+  | "win98-ding"; // 3-note success stinger
 
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
@@ -505,6 +511,109 @@ export function playSound(name: SoundName, volume = 1) {
       ns.connect(bp).connect(g).connect(masterGain);
       ns.start(now);
       ns.stop(now + dur);
+      break;
+    }
+    case "crt-on": {
+      // Power-on: high whine that descends quickly + a soft click at start.
+      const dur = 0.55;
+      const osc = c.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(6000, now);
+      osc.frequency.exponentialRampToValueAtTime(220, now + dur * 0.6);
+      const bp = c.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 1500;
+      bp.Q.value = 3;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(v * 0.3, now + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      osc.connect(bp).connect(g).connect(masterGain);
+      osc.start(now);
+      osc.stop(now + dur + 0.02);
+      // Soft click transient
+      const nb = c.createBuffer(1, c.sampleRate * 0.02, c.sampleRate);
+      const nd = nb.getChannelData(0);
+      for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+      const ns = c.createBufferSource();
+      ns.buffer = nb;
+      const ng = c.createGain();
+      ng.gain.value = v * 0.35;
+      ng.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
+      ns.connect(ng).connect(masterGain);
+      ns.start(now);
+      ns.stop(now + 0.03);
+      break;
+    }
+    case "crt-off": {
+      // Collapse-to-dot: descending pitch + noise hiss fading.
+      const dur = 0.35;
+      const osc = c.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(900, now);
+      osc.frequency.exponentialRampToValueAtTime(80, now + dur);
+      const g = c.createGain();
+      g.gain.setValueAtTime(v * 0.25, now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      osc.connect(g).connect(masterGain);
+      osc.start(now);
+      osc.stop(now + dur + 0.02);
+      break;
+    }
+    case "type-key": {
+      // Short, slightly-varied keyboard tick — bandpass noise burst.
+      const dur = 0.035;
+      const nb = c.createBuffer(1, c.sampleRate * dur, c.sampleRate);
+      const nd = nb.getChannelData(0);
+      for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nd.length);
+      const ns = c.createBufferSource();
+      ns.buffer = nb;
+      const bp = c.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 3200 + Math.random() * 800;
+      bp.Q.value = 3;
+      const g = c.createGain();
+      g.gain.value = v * 0.4;
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      ns.connect(bp).connect(g).connect(masterGain);
+      ns.start(now);
+      ns.stop(now + dur + 0.01);
+      break;
+    }
+    case "win98-click": {
+      // Short filtered click — UI button press.
+      const dur = 0.05;
+      const nb = c.createBuffer(1, c.sampleRate * dur, c.sampleRate);
+      const nd = nb.getChannelData(0);
+      for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nd.length);
+      const ns = c.createBufferSource();
+      ns.buffer = nb;
+      const bp = c.createBiquadFilter();
+      bp.type = "highpass";
+      bp.frequency.value = 2500;
+      const g = c.createGain();
+      g.gain.value = v * 0.5;
+      ns.connect(bp).connect(g).connect(masterGain);
+      ns.start(now);
+      ns.stop(now + dur);
+      break;
+    }
+    case "win98-ding": {
+      // Three-note success stinger — pure sines, ascending major triad.
+      const freqs = [523.25, 659.25, 783.99]; // C5 E5 G5
+      freqs.forEach((f, i) => {
+        const start = now + i * 0.1;
+        const osc = c.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = f;
+        const g = c.createGain();
+        g.gain.setValueAtTime(0, start);
+        g.gain.linearRampToValueAtTime(v * 0.35, start + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, start + 0.35);
+        osc.connect(g).connect(masterGain!);
+        osc.start(start);
+        osc.stop(start + 0.4);
+      });
       break;
     }
     case "alien": {
