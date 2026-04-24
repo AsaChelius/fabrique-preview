@@ -52,3 +52,4 @@ next-env.d.ts
 
 # Claude local overrides (personal, not committed)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
