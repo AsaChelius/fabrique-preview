@@ -359,14 +359,16 @@ function RevealCamera() {
   useFrame((state) => {
     const started = startRef.current;
     const cam = camera as PerspectiveCameraImpl;
+    // Parallax targets are always computed — during the reveal they
+    // ramp in with the easing (so the mouse already has influence as
+    // the sculpture resolves, instead of nothing happening for ~3s).
+    const parallaxX = state.pointer.x * TUNING.tiltAmountX;
+    const parallaxY = state.pointer.y * TUNING.tiltAmountY;
+
     if (started == null) {
-      // Idle: sit near the sweet-spot with a very slight mouse parallax so
-      // the sculpture feels alive. Offset stays small enough that the
-      // anamorphic silhouette remains readable.
-      const targetX = state.pointer.x * TUNING.tiltAmountX;
-      const targetY = state.pointer.y * TUNING.tiltAmountY;
-      cam.position.x += (targetX - cam.position.x) * TUNING.tiltLerp;
-      cam.position.y += (targetY - cam.position.y) * TUNING.tiltLerp;
+      // Idle: lerp toward the full parallax offset.
+      cam.position.x += (parallaxX - cam.position.x) * TUNING.tiltLerp;
+      cam.position.y += (parallaxY - cam.position.y) * TUNING.tiltLerp;
       cam.lookAt(0, 0, 0);
       return;
     }
@@ -375,10 +377,15 @@ function RevealCamera() {
     // easeOutCubic — quick move that settles gently onto the sweet-spot.
     const eased = 1 - Math.pow(1 - t, 3);
 
+    // Base: lerp from overture to sweet-spot.
     cam.position.lerpVectors(startPos.current, endPos.current, eased);
-    // Keep z at whatever ResponsiveCamera wanted — only lerp x,y during
-    // the pan. At t=1 both x and y are 0, so rays converge for the illusion.
-    // ResponsiveCamera will settle z independently.
+    // Parallax additive on top, scaled by `eased` so it ramps in
+    // alongside the reveal rather than snapping on at t=1. At eased≈0
+    // the parallax contribution is ~0 (camera stays at overture
+    // position); at eased=1 it's full parallax and blends seamlessly
+    // into the idle branch next frame.
+    cam.position.x += parallaxX * eased;
+    cam.position.y += parallaxY * eased;
     cam.lookAt(0, 0, 0);
 
     if (t >= 1) {
