@@ -274,16 +274,18 @@ function CRTMonitor({
         </mesh>
       )}
 
-      {/* Win98 UI on the screen — drei Html in transform mode scales DOM
-          pixels into scene units (distanceFactor=780 matches a 680px-wide
-          DOM to the ~0.87-unit screen plane). */}
+      {/* Win98 UI on the screen — drei Html in transform mode. Explicit
+          scale so the 680px DOM element maps to the ~0.87-unit screen
+          plane (680 * 0.0013 ≈ 0.88). distanceFactor misbehaved in
+          transform mode and rendered the DOM at 1 px = 1 scene unit,
+          which filled the whole viewport with teal. */}
       <Html
         position={[0, 0.04, D_FRONT / 2 - 0.115]}
         transform
-        occlude="blending"
-        distanceFactor={780}
+        scale={0.0013}
         pointerEvents={view === "computer" ? "auto" : "none"}
         wrapperClass="crt-html"
+        zIndexRange={[0, 10]}
       >
         <div className="crt-screen is-on">{screenNode}</div>
       </Html>
