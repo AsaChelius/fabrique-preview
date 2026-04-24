@@ -13,8 +13,9 @@
  */
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import type { ThreeEvent } from "@react-three/fiber";
 import { Environment, MeshReflectorMaterial } from "@react-three/drei";
-import { Suspense, useEffect, useMemo, useRef, type Ref } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type Ref } from "react";
 import * as THREE from "three";
 import type { PerspectiveCamera as PerspectiveCameraImpl } from "three";
 import { SuspendedCloud } from "./suspended-cloud";
@@ -23,6 +24,15 @@ import { DustMotes } from "./overhead";
 import { useSculpturePalette, type SculpturePalette } from "./palette";
 import { TUNING } from "./tuning";
 import { onReveal } from "./reveal-bus";
+import { SHOWCASE_LAYOUT } from "./showcase-targets";
+import {
+  collapseExpanded,
+  expandCard,
+  getMode,
+  onModeChange,
+  setHoveredCard,
+  type ShowcaseMode,
+} from "./showcase-bus";
 
 export function SculptureScene() {
   const palette = useSculpturePalette();
@@ -58,9 +68,159 @@ export function SculptureScene() {
         <DustMotes />
         <SuspendedCloud />
         <ProjectsButton />
+        <CardHitboxes />
+
+        {/* Manual mirror. When palette.floorReflective is false we
+            don't use drei's MeshReflectorMaterial (which can't produce
+            a clean reflection on a near-black base). Instead a flipped
+            copy of the sculpture sits below the floor; ReflectiveFloor
+            renders a semi-transparent dark plane on top. The camera
+            sees the mirror through the tinted pane — a real reflection
+            at a known cost (one extra SuspendedCloud's worth of work). */}
+        {!palette.floorReflective && (
+          <MirrorBelow floorY={TUNING.floorY}>
+            <SuspendedCloud />
+          </MirrorBelow>
+        )}
+
         <ReflectiveFloor palette={palette} />
       </Suspense>
     </Canvas>
+  );
+}
+
+/**
+ * Wraps children in a scale=[1,-1,1] group positioned below the floor
+ * so they render as a geometric mirror of the upright content. Raycast
+ * is disabled on the group so duplicate hit-planes / buttons inside
+ * the mirror don't fire double click events.
+ */
+function MirrorBelow({
+  floorY,
+  children,
+}: {
+  floorY: number;
+  children: React.ReactNode;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  // Three.js's Raycaster descends into children regardless of the
+  // parent group's `raycast`. To fully disable pointer events on the
+  // mirrored subtree (so hover/click never fire twice), traverse after
+  // mount and no-op every descendant's raycast method.
+  useEffect(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    g.traverse((obj) => {
+      (obj as THREE.Object3D).raycast = () => {};
+    });
+  });
+  return (
+    <group
+      ref={groupRef}
+      position={[0, 2 * floorY, 0]}
+      scale={[1, -1, 1]}
+    >
+      {children}
+    </group>
+  );
+}
+
+/**
+ * Invisible planes that capture pointer events for the 5 showcase
+ * cards (or the one merged box in expanded mode). Publishes hover +
+ * click events through the showcase bus. Mounted only while the
+ * showcase is active; Shards reads the bus to paint the glow / morph.
+ */
+function CardHitboxes() {
+  const [mode, setMode] = useState<ShowcaseMode>(() => getMode());
+
+  useEffect(() => {
+    setMode(getMode());
+    return onModeChange((m) => {
+      setMode(m);
+      // Planes unmount on mode transitions. `onPointerOut` won't fire
+      // on the plane that disappears, so clear hover state centrally
+      // to avoid a stuck highlighted card / stuck pointer cursor.
+      setHoveredCard(null);
+      if (typeof document !== "undefined") document.body.style.cursor = "";
+    });
+  }, []);
+
+  if (mode === "off") return null;
+
+  // Expanded mode: a single big hit-plane covering the merged box.
+  // Clicking it steps back to the 5-card showcase layout.
+  if (mode === "expanded") {
+    const w = TUNING.expandedBoxW;
+    const h = TUNING.expandedBoxH;
+    return (
+      <mesh
+        position={[0, SHOWCASE_LAYOUT.centerY, SHOWCASE_LAYOUT.centerZ]}
+        onClick={(e) => {
+          e.stopPropagation();
+          collapseExpanded();
+        }}
+        visible={false}
+      >
+        <planeGeometry args={[w, h]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+    );
+  }
+
+  // Showcase mode: one plane per card.
+  const { cardW, cardH, xCenters, centerY, centerZ } = SHOWCASE_LAYOUT;
+  return (
+    <>
+      {xCenters.map((cx, i) => (
+        <CardHitPlane
+          key={i}
+          idx={i}
+          position={[cx, centerY, centerZ]}
+          width={cardW}
+          height={cardH}
+        />
+      ))}
+    </>
+  );
+}
+
+function CardHitPlane({
+  idx,
+  position,
+  width,
+  height,
+}: {
+  idx: number;
+  position: [number, number, number];
+  width: number;
+  height: number;
+}) {
+  const onOver = (e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation();
+    setHoveredCard(idx);
+    document.body.style.cursor = "pointer";
+  };
+  const onOut = (e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation();
+    setHoveredCard(null);
+    document.body.style.cursor = "";
+  };
+  const onClick = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    expandCard(idx);
+  };
+  return (
+    <mesh
+      position={position}
+      onPointerOver={onOver}
+      onPointerOut={onOut}
+      onClick={onClick}
+      visible={false}
+    >
+      <planeGeometry args={[width, height]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+    </mesh>
   );
 }
 
@@ -243,21 +403,15 @@ function ReflectiveFloor({ palette }: { palette: SculpturePalette }) {
     () => new THREE.Color(palette.floor),
     [palette.floor],
   );
-  const initialColor = useRef(palette.floor).current;
+  // Use the LIVE palette.floor as the initial color. The matKey differs
+  // between modes (mirror + mixStrength + mixContrast all change), so
+  // the material remounts on toggle and picks up the correct base
+  // color immediately — no stale "color captured on first render" bug.
+  const initialColor = palette.floor;
   useFrame(() => {
     if (matRef.current) matRef.current.color.lerp(targetColor, TUNING.paletteLerp);
   });
-  // drei's MeshReflectorMaterial captures most shader uniforms at
-  // construction time, so we key the element on the full reflection
-  // profile — remounts give us clean swaps between modes.
-  //
-  // Bonus: in dark mode we swap to a plain meshBasicMaterial because
-  // MeshReflectorMaterial's blurred render of the scene (even with a
-  // pure-black base color and no envmap) bleeds a grey haze onto the
-  // floor. The "reflection" we still want in dark mode is rendered
-  // separately by <MirroredSculpture /> below as a scaled-flipped copy
-  // of the shards — crisp, no grey, no reflector math.
-  const reflective = palette.floorMirror > 0.01 && palette.floorMixStrength > 0.05 && palette.floor !== "#000000";
+  const reflective = palette.floorReflective;
   const matKey = reflective
     ? `ref-${palette.floorMirror.toFixed(2)}-${palette.floorMixStrength.toFixed(2)}-${palette.floorMixContrast.toFixed(2)}-${palette.floorReflectBlur.toFixed(2)}-${palette.floorMixBlur.toFixed(2)}`
     : "basic";
@@ -286,10 +440,18 @@ function ReflectiveFloor({ palette }: { palette: SculpturePalette }) {
           depthScale={0}
         />
       ) : (
+        // Dark mode: semi-transparent dark pane. The mirror sculpture
+        // below renders first (opaque); this plane then alpha-blends
+        // on top so we see the reflected shards through a tinted
+        // glass. Opacity 0.68 = floor reads mostly-black with bright
+        // shard reflections punching through at ~32% brightness.
         <meshBasicMaterial
           key={matKey}
           ref={matRef as unknown as Ref<THREE.Material>}
           color={initialColor}
+          transparent
+          opacity={0.68}
+          depthWrite={false}
         />
       )}
     </mesh>

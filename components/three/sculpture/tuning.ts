@@ -78,7 +78,7 @@ export const TUNING = {
   /** Margin (world units) added around the cloud when fitting FOV to it.
    *  Bumped up so the sculpture sits with more breathing room — reads as
    *  if the camera pulled back a step. */
-  fitMargin: 1.8,
+  fitMargin: 3.0,
   /** How deep the cloud extends along the viewing ray (+/- around z=0).
    *  Bigger = more obvious 3D when the camera moves off-axis. */
   cloudDepth: 3.0,
@@ -218,14 +218,79 @@ export const TUNING = {
 
   // ---- Idle mouse parallax -------------------------------------------
   /** Peak camera X offset (world units) when mouse is at the horizontal edge.
-   *  Very slight — the anamorphic illusion degrades quickly with camera
-   *  displacement, so we keep this under ~0.1 to preserve the wordmark read. */
-  tiltAmountX: 0.09,
+   *  Cranked past the original "preserve anamorphic illusion" limit —
+   *  the card volumes have real Z depth now, so the 3D read benefits
+   *  from a more pronounced parallax. FABRIQUE still resolves near
+   *  the sweet-spot; the illusion just softens at the edges, which is
+   *  worth it for the extra dimensionality on the cards. */
+  tiltAmountX: 0.38,
   /** Peak camera Y offset (world units) when mouse is at the vertical edge. */
-  tiltAmountY: 0.06,
+  tiltAmountY: 0.24,
   /** Per-frame lerp factor toward the target tilted position. Low = smooth
    *  follow, never a snap. */
   tiltLerp: 0.18,
+
+  // ---- Showcase (NOS PROJETS open state) ------------------------------
+  /** Base HSL hue (0-1) per card, driving the chameleon color flow. Red,
+   *  gold, cyan, royal-blue, magenta — picked so adjacent cards land far
+   *  apart on the wheel. Each shard inside a card adds per-shard noise. */
+  cardHues: [0.02, 0.13, 0.46, 0.62, 0.85] as const,
+  /** Slow global hue drift (turns / sec). Low so the colors breathe. */
+  hueDriftRate: 0.035,
+  /** Wave amplitude applied to a card's hue (turns). Creates the flowing
+   *  swirl across its shards. */
+  hueFlowAmp: 0.14,
+  /** Per-shard hue noise amplitude (turns). Gives individual shards a
+   *  slightly different tint from their neighbours. */
+  hueShardNoise: 0.06,
+  /** Chameleon saturation + lightness (base values; each is modulated by
+   *  a tiny per-shard sinusoid for the shimmer read). */
+  chameleonSat: 0.82,
+  chameleonLight: 0.58,
+  /** Per-frame lerp for the chameleon fade-in when showcase activates and
+   *  fade-out when it closes. ~0.08 ≈ 300ms to 90%. Should feel roughly
+   *  in step with the shard physics morph. Also drives the wind
+   *  fade-in below — one factor governs all showcase-specific effects. */
+  showcaseColorLerp: 0.08,
+
+  /** Idle wind pushing each shard around while inside a card. Each shard
+   *  has its own phase per axis so the cloud reads as turbulent rather
+   *  than a coordinated wave. Applied on top of the existing pendulum
+   *  sway, scaled by the showcase morph so it fades in/out with the
+   *  mode — no wind outside the cards. */
+  windAmpX: 0.14,
+  windAmpY: 0.11,
+  windAmpZ: 0.13,
+  /** Base angular frequency per axis (rad/sec). Prime-ish ratios so the
+   *  composite XYZ motion never closes a short loop. */
+  windFreqX: 1.7,
+  windFreqY: 2.3,
+  windFreqZ: 1.3,
+
+  /** Snake-style flow along the card outlines. Each outline shard gets
+   *  pushed along its edge direction by a traveling sine wave — same
+   *  wave across a given edge so the displacement reads as a continuous
+   *  ripple contouring the wireframe (not shards jittering in place). */
+  snakeAmp: 0.028,
+  /** How many full waves fit along one edge length. 2.5 gives a few
+   *  visible "humps" traveling along each side at any moment. */
+  snakeWaveCount: 2.5,
+  /** Wave travel speed in cycles / sec. Slow = meandering snake. */
+  snakeWaveSpeed: 0.45,
+
+  /** Glow additions applied per-shard when the cursor is over the
+   *  shard's own card. Mixed into the chameleon HSL — brighter and
+   *  more saturated than the idle tone, reads as "this card lights
+   *  up when you're on it". */
+  glowSatBoost: 0.18,
+  glowLightBoost: 0.27,
+
+  /** One merged box used in "expanded" mode. Wider/taller/deeper than
+   *  a single card — covers most of the plaque area. All shards
+   *  (outline + interior) collapse into it. */
+  expandedBoxW: 9.0,
+  expandedBoxH: 2.5,
+  expandedBoxD: 2.4,
 
   // ---- Reveal animation ----------------------------------------------
   /** Duration of the camera pan from overture pose to sweet-spot (ms). */

@@ -22,9 +22,12 @@ import * as THREE from "three";
 import type { ThreeEvent } from "@react-three/fiber";
 import { useSculpturePalette } from "./palette";
 import {
+  getMode,
   isShowcaseActive,
+  onModeChange,
   onShowcaseChange,
   toggleShowcase,
+  type ShowcaseMode,
 } from "./showcase-bus";
 import { TUNING } from "./tuning";
 import type { Placement } from "./placements";
@@ -82,15 +85,34 @@ const BUTTON = {
   hitPaddingX: 0.35,
   hitPaddingY: 0.28,
 
-  // ---- Hover oscillation ----
-  /** Peak vertical wobble amplitude in world units. Button sways up/down
-   *  this many units when hovered. */
-  hoverOscillateAmp: 0.04,
-  /** Oscillation angular frequency (rad / sec). 2π ≈ 1Hz. */
-  hoverOscillateFreq: 6.5,
-  /** Lerp toward the current hover target (0 or 1) — gives a smooth
-   *  ramp-up/ramp-down instead of the wobble snapping on or off. */
-  hoverOscillateLerp: 0.08,
+  // ---- Hover separation ----
+  // On hover each shard drifts outward along its own random direction —
+  // replaces the old vertical oscillation, which read as the whole
+  // label bouncing instead of as the piece reacting to the cursor.
+  /** Peak outward displacement per shard (world units). Small — it's a
+   *  subtle "pieces breathe apart" effect, not an explosion. */
+  hoverSeparationAmp: 0.022,
+  /** Lerp toward hover target (0 or 1). Low = smooth ramp in/out. */
+  hoverSeparationLerp: 0.085,
+
+  // ---- 3D tilt (pointer-driven rotation) ----
+  /** Max rotation around Y when pointer is at horizontal edge (radians).
+   *  ~0.2 rad ≈ 11° — pronounced enough to read as a real 3D swing
+   *  without flipping the label off-axis. */
+  tiltMaxRotY: 0.22,
+  /** Max rotation around X when pointer is at vertical edge (radians). */
+  tiltMaxRotX: 0.14,
+  /** Per-frame lerp toward the target rotation — matches the scene's
+   *  tiltLerp character so button + camera parallax move together. */
+  tiltLerp: 0.12,
+
+  // ---- Back-arrow extra Y offset while inside a project ----
+  /** When the user is in "expanded" mode (one of the 5 cards opened
+   *  into the big merged box), the back-arrow slides down by this many
+   *  world units so it sits clear of the expanded card's lower edge
+   *  instead of poking into it. Lerp happens automatically via the
+   *  existing morph spring — the arrow just eases down into place. */
+  expandedArrowDrop: -0.18,
 
   // ---- Back-arrow (shown when the showcase is open) ----
   /** Per-frame lerp toward the active layout (text or arrow). Low = slow
@@ -116,9 +138,11 @@ export function ProjectsButton() {
   const [hover, setHover] = useState(false);
   const [placements, setPlacements] = useState<Placement[] | null>(null);
   const [showcase, setShowcase] = useState<boolean>(() => isShowcaseActive());
+  const [mode, setMode] = useState<ShowcaseMode>(() => getMode());
   const palette = useSculpturePalette();
 
   useEffect(() => onShowcaseChange(setShowcase), []);
+  useEffect(() => onModeChange((m) => setMode(m)), []);
 
   // Back-arrow placements used when the showcase is open — same shard
   // count as the text so we can lerp 1:1 between the two layouts.
@@ -196,8 +220,9 @@ export function ProjectsButton() {
 
   const shardMeshRef = useRef<THREE.InstancedMesh>(null);
   const groupRef = useRef<THREE.Group>(null);
-  // Smoothed hover amplitude (0 = resting, 1 = full wobble). Lerped
-  // toward `hover ? 1 : 0` per frame so the oscillation fades in/out.
+  // Smoothed hover factor (0 = resting, 1 = fully separated). Drives
+  // the per-shard outward displacement applied on top of the text
+  // layout. Lerped toward hover ? 1 : 0 each frame.
   const hoverAmp = useRef(0);
 
   // Rotations never change — precompute once from the text placements
@@ -225,6 +250,29 @@ export function ProjectsButton() {
   // (text or arrow). This is what drives the visible morph animation.
   const currentPos = useRef<Float32Array | null>(null);
 
+  // Precomputed per-shard random outward direction. Used for the hover
+  // separation effect — scale by hoverAmp.current * hoverSeparationAmp
+  // and add to the live position each frame. Magnitudes vary per shard
+  // (0.5..1) so the effect reads as organic, not uniform scaling.
+  const separationDirs = useMemo<Float32Array | null>(() => {
+    if (!placements) return null;
+    const arr = new Float32Array(placements.length * 3);
+    const rand = mulberry32(0xc0ffee13);
+    for (let i = 0; i < placements.length; i++) {
+      // Uniform point on the sphere via inverse CDF, then scale down so
+      // separation prefers in-plane motion (Z spread is narrower than
+      // XY — the button is ~flat so big Z jumps break the silhouette).
+      const u = rand() * 2 - 1;
+      const theta = rand() * Math.PI * 2;
+      const r = Math.sqrt(1 - u * u);
+      const mag = 0.5 + rand() * 0.5;
+      arr[i * 3] = r * Math.cos(theta) * mag;
+      arr[i * 3 + 1] = u * mag;
+      arr[i * 3 + 2] = r * Math.sin(theta) * mag * 0.35;
+    }
+    return arr;
+  }, [placements]);
+
   useLayoutEffect(() => {
     if (!placements) return;
     const shardMesh = shardMeshRef.current;
@@ -249,8 +297,16 @@ export function ProjectsButton() {
     const shardMesh = shardMeshRef.current;
     if (!placements || !cur || !quats || !shardMesh) return;
 
-    const targets = showcase && arrowPlacements ? arrowPlacements : placements;
+    const showingArrow = showcase && arrowPlacements;
+    const targets = showingArrow ? arrowPlacements! : placements;
     const lerp = BUTTON.morphLerp;
+    const sepMag = hoverAmp.current * BUTTON.hoverSeparationAmp;
+    const sepDirs = separationDirs;
+    // Drop the arrow slightly while inside a project (expanded mode).
+    // Only applies when the arrow layout is active; the text layout is
+    // never shown in expanded mode.
+    const arrowYOffset =
+      showingArrow && mode === "expanded" ? BUTTON.expandedArrowDrop : 0;
 
     const m = new THREE.Matrix4();
     const pos = new THREE.Vector3();
@@ -260,12 +316,22 @@ export function ProjectsButton() {
     for (let i = 0; i < placements.length; i++) {
       const t = targets[i];
       const i3 = i * 3;
+      const ty = t.y + arrowYOffset;
       cur[i3]     += (t.x - cur[i3])     * lerp;
-      cur[i3 + 1] += (t.y - cur[i3 + 1]) * lerp;
+      cur[i3 + 1] += (ty  - cur[i3 + 1]) * lerp;
       cur[i3 + 2] += (t.z - cur[i3 + 2]) * lerp;
-      const x = cur[i3];
-      const y = cur[i3 + 1];
-      const z = cur[i3 + 2];
+
+      // Hover separation lives ON TOP of the live position — added
+      // each frame, never accumulated into `cur`. That way toggling
+      // hover off snaps back cleanly without drift in the base layout.
+      let x = cur[i3];
+      let y = cur[i3 + 1];
+      let z = cur[i3 + 2];
+      if (sepMag > 0.0005 && sepDirs) {
+        x += sepDirs[i3] * sepMag;
+        y += sepDirs[i3 + 1] * sepMag;
+        z += sepDirs[i3 + 2] * sepMag;
+      }
 
       const i4 = i * 4;
       q.set(quats[i4], quats[i4 + 1], quats[i4 + 2], quats[i4 + 3]);
@@ -277,8 +343,12 @@ export function ProjectsButton() {
     shardMesh.instanceMatrix.needsUpdate = true;
   });
 
-  // Lerp emissive intensity + hover wobble amplitude, then apply the
-  // wobble to the group so all shards + wires sway together.
+  // Lerp emissive intensity + hover separation amplitude + apply a
+  // group-level 3D tilt driven by the pointer. The tilt rotation
+  // amplifies the camera-parallax response on the button itself so the
+  // piece visibly reacts to mouse movement (the shards are placed
+  // anamorphically toward the sweet-spot, which makes pure camera
+  // parallax look subtle on them — adding rotation gives it real 3D).
   useFrame((state) => {
     const emTarget = hover ? BUTTON.hoverMaxEmissive : 0;
     material.emissiveIntensity +=
@@ -286,15 +356,17 @@ export function ProjectsButton() {
 
     const ampTarget = hover ? 1 : 0;
     hoverAmp.current +=
-      (ampTarget - hoverAmp.current) * BUTTON.hoverOscillateLerp;
+      (ampTarget - hoverAmp.current) * BUTTON.hoverSeparationLerp;
 
     const group = groupRef.current;
     if (group) {
-      const t = state.clock.elapsedTime;
-      group.position.y =
-        hoverAmp.current *
-        Math.sin(t * BUTTON.hoverOscillateFreq) *
-        BUTTON.hoverOscillateAmp;
+      // Pointer is normalized to [-1, 1]. Tilt around Y from horizontal
+      // movement, around X from vertical (inverted so "mouse up" tips
+      // the top toward the camera — matches natural expectation).
+      const targetRotY = state.pointer.x * BUTTON.tiltMaxRotY;
+      const targetRotX = -state.pointer.y * BUTTON.tiltMaxRotX;
+      group.rotation.y += (targetRotY - group.rotation.y) * BUTTON.tiltLerp;
+      group.rotation.x += (targetRotX - group.rotation.x) * BUTTON.tiltLerp;
     }
   });
 

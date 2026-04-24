@@ -18,23 +18,29 @@ export type SculpturePalette = {
   background: string;
   letterShard: string;
   frameShard: string;
+  /** Floor base color — kept equal to `background` in both modes so the
+   *  ground plane itself never reads as a visible surface. Only the
+   *  reflected sculpture on top of it is visible. This removes the
+   *  "grey plane appears during light↔dark transition" artifact. */
   floor: string;
-  /** Reflection strength of the ground plane (0 = invisible ground,
-   *  no mirror; 1 = full reflection). Dark mode kills the reflection
-   *  entirely so the "grey floor zone" disappears into the dark bg. */
+  /** Whether the ground plane uses MeshReflectorMaterial (true) or a
+   *  plain meshBasicMaterial (false). Dark mode uses basic to avoid the
+   *  blurred-reflection grey haze that drei's reflector bleeds even on
+   *  a black base. */
+  floorReflective: boolean;
+  /** Reflection strength when `floorReflective`. 0-1. */
   floorMirror: number;
   /** How much of the reflected scene mixes on top of the floor's
    *  base color. High = bright reflection; 0 = no visible reflection. */
   floorMixStrength: number;
-  /** Contrast curve applied to the reflection. >1 = punchier; dim parts
-   *  go darker, bright parts go brighter. */
+  /** Contrast curve applied to the reflection. >1 = punchier. */
   floorMixContrast: number;
-  /** Per-mode blur settings for the reflection. Dark mode uses very
-   *  small values so the reflection reads as a sharp silhouette of the
-   *  bright shards instead of a grey haze. */
+  /** Per-mode blur settings for the reflection. */
   floorReflectBlur: number;
   floorMixBlur: number;
   dust: string;
+  /** Subtle architectural beam above the sculpture (overhead.tsx). */
+  ceilingBeam: string;
   projectsBase: string;
   projectsEmissive: string;
   projectsWire: string;
@@ -47,20 +53,16 @@ const LIGHT: SculpturePalette = {
   background: TUNING.backgroundColor,
   letterShard: TUNING.letterShardColor,
   frameShard: TUNING.frameShardColor,
+  // Floor stays visible as its own surface; reflection rides on top.
   floor: TUNING.floorColor,
+  floorReflective: true,
   floorMirror: TUNING.floorReflectStrength,
   floorMixStrength: TUNING.floorMixStrength,
-  /** Contrast curve applied to the reflection before it mixes with the
-   *  base color. >1 = bright reflections brighter, dim reflections
-   *  darker — lets us make the wordmark reflection pop while the dim
-   *  plaque reflection disappears into the black floor. */
   floorMixContrast: 1.0,
-  /** Reflection blur size. Light mode keeps the default soft mirror
-   *  look; dark mode uses near-zero blur so the reflection reads as a
-   *  crisp silhouette of the bright shards instead of a grey haze. */
   floorReflectBlur: TUNING.floorReflectBlur,
   floorMixBlur: TUNING.floorMixBlur,
   dust: TUNING.dustColor,
+  ceilingBeam: TUNING.ceilingBeamColor,
   projectsBase: "#5a5e66",
   projectsEmissive: "#ffd48a",
   projectsWire: "#9aa0a8",
@@ -69,29 +71,30 @@ const LIGHT: SculpturePalette = {
   rimLight: "#ffffff",
 };
 
-// Dark mode — hand-tuned, not straight invert. The user wanted "darker
-// darks, slightly whiter whites" so the contrast is punchier than a
-// mechanical #faf8f3 → #050706 flip would give.
+// Dark mode — hand-tuned, not straight invert.
 const DARK: SculpturePalette = {
   background: "#030405",
   letterShard: "#f2f0ea",
   frameShard: "#4b4741",
-  // Dark mode: pure-black floor, sharp (near-zero-blur) reflection so
-  // the bright wordmark + card shards appear as a crisp mirror image
-  // instead of a blurry grey haze. Dim plaque pixels are still dark,
-  // so they vanish into the black floor on their own.
+  // Dark mode uses a MANUAL mirror (see sculpture-scene.tsx): a
+  // flipped copy of the sculpture renders below the floor, and the
+  // floor is a semi-transparent black plane on top. This sidesteps
+  // drei's MeshReflectorMaterial, which kept bleeding grey onto near-
+  // black floors no matter how we tuned mirror / mixStrength /
+  // mixContrast. The reflection is now the shards themselves, seen
+  // through a tinted sheet of glass.
   floor: "#000000",
+  floorReflective: false,
   floorMirror: 1.0,
-  floorMixStrength: 1.2,
+  floorMixStrength: 1.0,
   floorMixContrast: 1.0,
-  floorReflectBlur: 1,
+  floorReflectBlur: 0,
   floorMixBlur: 0,
   dust: "#e8e4d6",
+  ceilingBeam: "#33302b",
   projectsBase: "#c6c2b8",
   projectsEmissive: "#ffd48a",
   projectsWire: "#7a7672",
-  // Lights keep a warm/cool key so the sculpture doesn't look flat —
-  // inverting a light source's color doesn't make physical sense.
   keyLight: "#fff4e0",
   fillLight: "#bcc7da",
   rimLight: "#e8ebf1",

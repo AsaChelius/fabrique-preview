@@ -1,68 +1,267 @@
 "use client";
 
+import { TUNING } from "./tuning";
+
 /**
- * Compute showcase target positions for the letter shards.
+ * Showcase target positions for the letter + frame shards.
  *
- * Input: number of letter shards.
- * Output: Float32Array of (x, y, z) triples arranged into five thin
- * rectangular outlines — one per project — sitting in a horizontal row
- * inside the plaque area. Fed into the physics state as new `home`
- * values; the existing spring restores shards to these new targets and
- * the morph animates itself.
+ * In showcase mode the entire shard population collapses into five 3D
+ * rectangular-prism cards sitting in a row inside the plaque area:
+ *   - Letter shards → the TWELVE EDGES of each card's wireframe
+ *     (gives real forward/back depth on the outlines — the same kind of
+ *     depth FABRIQUE itself has).
+ *   - Frame shards (formerly the plaque backdrop) → the INTERIOR VOLUME
+ *     of each card. This drops the visible grey plaque and brings every
+ *     shard inside a box.
+ *
+ * Each shard also gets a `cardIndex` (0-4) so the chameleon color flow
+ * in <Shards /> can tint it based on which card it belongs to.
  */
 
 export const SHOWCASE_LAYOUT = {
   cardW: 1.7,
   cardH: 2.2,
-  /** X centers of the 5 cards. */
-  xCenters: [-3.8, -1.9, 0, 1.9, 3.8] as const,
-  /** Y center of the entire row (matches FABRIQUE's vertical mid). */
+  /** Card depth — pushed past half the full FABRIQUE cloud depth so the
+   *  forward/back 3D read is pronounced and the interior wind has room
+   *  to swirl without bunching against a shallow Z range. */
+  cardD: 2.0,
+  /** X centers of the 5 cards — evenly spaced at 2.6 units apart so
+   *  gaps between every adjacent pair are identical. Previously the
+   *  outer cards sat further out than the inner ones, which made the
+   *  spacing look lopsided. */
+  xCenters: [-5.2, -2.6, 0, 2.6, 5.2] as const,
+  /** Y center of the card row. */
   centerY: 0,
-  /** Thickness (world units) of the perimeter band the shards fill. */
-  outlineThickness: 0.09,
-  /** Z spread per shard so outlines have slight depth. */
-  zJitter: 0.08,
+  /** Z center of the card row. */
+  centerZ: 0,
+  /** Scatter around edge / interior positions so shards don't lock into
+   *  a geometric line. Small for edges (keeps the wireframe crisp). */
+  outlineJitter: 0.08,
 } as const;
 
-export function computeShowcaseHomes(letterCount: number): Float32Array {
-  const out = new Float32Array(letterCount * 3);
-  const rand = mulberry32(0xca12d500);
-  const { cardW, cardH, xCenters, centerY, outlineThickness, zJitter } =
-    SHOWCASE_LAYOUT;
-  const halfW = cardW / 2;
-  const halfH = cardH / 2;
-  const perim = 2 * cardW + 2 * cardH;
-  const perCard = Math.ceil(letterCount / xCenters.length);
+export type ShowcaseHomes = {
+  /** Flat (x,y,z) triples, length = count*3. */
+  positions: Float32Array;
+  /** 0-4, one per shard. */
+  cardIndex: Int8Array;
+  /** For outline shards only: per-shard (dx, dy, dz, tAlongEdge). The
+   *  unit vector points along the edge the shard sits on; `tAlongEdge`
+   *  is 0..1 position along that edge. Feeds the snake-wave flow in
+   *  Shards. Null for interior-fill shards. */
+  edgeFlow: Float32Array | null;
+};
 
-  for (let i = 0; i < letterCount; i++) {
-    const cardIdx = Math.min(xCenters.length - 1, Math.floor(i / perCard));
+/**
+ * Letter shards → distribute across the 12 edges of each 3D card.
+ * Edge lengths are weighted by length so edge density reads uniform.
+ */
+export function computeShowcaseLetterHomes(count: number): ShowcaseHomes {
+  const positions = new Float32Array(count * 3);
+  const cardIndex = new Int8Array(count);
+  const edgeFlow = new Float32Array(count * 4);
+  const rand = mulberry32(0xca12d500);
+  const { cardW, cardH, cardD, xCenters, centerY, centerZ, outlineJitter } =
+    SHOWCASE_LAYOUT;
+  const hw = cardW / 2;
+  const hh = cardH / 2;
+  const hd = cardD / 2;
+  const nCards = xCenters.length;
+  const perCard = Math.ceil(count / nCards);
+
+  // Edge group thresholds (cumulative probability by axis).
+  const totalEdgeLen = 4 * cardW + 4 * cardH + 4 * cardD;
+  const thX = (4 * cardW) / totalEdgeLen;
+  const thXY = (4 * cardW + 4 * cardH) / totalEdgeLen;
+
+  for (let i = 0; i < count; i++) {
+    const cardIdx = Math.min(nCards - 1, Math.floor(i / perCard));
     const cx = xCenters[cardIdx];
-    const t = rand() * perim;
+    const cy = centerY;
+    const cz = centerZ;
+    const axisRoll = rand();
+    const cornerPick = rand();
+    const j1 = (rand() - 0.5) * outlineJitter;
+    const j2 = (rand() - 0.5) * outlineJitter;
+    // Parametric t along the edge (0..1). Drives the snake wave phase
+    // so shards sharing an edge ripple in sequence instead of in unison.
+    const edgeT = rand();
+
     let x: number;
     let y: number;
-    if (t < cardW) {
-      // top edge
-      x = cx - halfW + t;
-      y = centerY + halfH + (rand() - 0.5) * outlineThickness;
-    } else if (t < 2 * cardW) {
-      // bottom edge
-      x = cx - halfW + (t - cardW);
-      y = centerY - halfH + (rand() - 0.5) * outlineThickness;
-    } else if (t < 2 * cardW + cardH) {
-      // left edge
-      x = cx - halfW + (rand() - 0.5) * outlineThickness;
-      y = centerY - halfH + (t - 2 * cardW);
+    let z: number;
+    let dx = 0;
+    let dy = 0;
+    let dz = 0;
+
+    if (axisRoll < thX) {
+      // X-aligned edge — picks one of the 4 (y,z) corners.
+      x = cx - hw + edgeT * cardW;
+      if (cornerPick < 0.25)      { y = cy + hh; z = cz + hd; }
+      else if (cornerPick < 0.5)  { y = cy + hh; z = cz - hd; }
+      else if (cornerPick < 0.75) { y = cy - hh; z = cz + hd; }
+      else                         { y = cy - hh; z = cz - hd; }
+      y += j1;
+      z += j2;
+      dx = 1;
+    } else if (axisRoll < thXY) {
+      // Y-aligned edge — picks one of the 4 (x,z) corners.
+      y = cy - hh + edgeT * cardH;
+      if (cornerPick < 0.25)      { x = cx + hw; z = cz + hd; }
+      else if (cornerPick < 0.5)  { x = cx + hw; z = cz - hd; }
+      else if (cornerPick < 0.75) { x = cx - hw; z = cz + hd; }
+      else                         { x = cx - hw; z = cz - hd; }
+      x += j1;
+      z += j2;
+      dy = 1;
     } else {
-      // right edge
-      x = cx + halfW + (rand() - 0.5) * outlineThickness;
-      y = centerY - halfH + (t - 2 * cardW - cardH);
+      // Z-aligned edge — picks one of the 4 (x,y) corners.
+      z = cz - hd + edgeT * cardD;
+      if (cornerPick < 0.25)      { x = cx + hw; y = cy + hh; }
+      else if (cornerPick < 0.5)  { x = cx + hw; y = cy - hh; }
+      else if (cornerPick < 0.75) { x = cx - hw; y = cy + hh; }
+      else                         { x = cx - hw; y = cy - hh; }
+      x += j1;
+      y += j2;
+      dz = 1;
     }
-    const z = (rand() - 0.5) * zJitter;
-    out[i * 3] = x;
-    out[i * 3 + 1] = y;
-    out[i * 3 + 2] = z;
+
+    positions[i * 3] = x;
+    positions[i * 3 + 1] = y;
+    positions[i * 3 + 2] = z;
+    cardIndex[i] = cardIdx;
+    edgeFlow[i * 4]     = dx;
+    edgeFlow[i * 4 + 1] = dy;
+    edgeFlow[i * 4 + 2] = dz;
+    edgeFlow[i * 4 + 3] = edgeT;
   }
-  return out;
+
+  return { positions, cardIndex, edgeFlow };
+}
+
+/**
+ * Frame shards → uniform random fill inside each card's 3D volume.
+ * The whole plaque vanishes in showcase mode; every grey shard ends up
+ * inside a box where the chameleon color flow takes over.
+ */
+export function computeShowcaseFrameHomes(count: number): ShowcaseHomes {
+  const positions = new Float32Array(count * 3);
+  const cardIndex = new Int8Array(count);
+  const rand = mulberry32(0x1ea7fb1e);
+  const { cardW, cardH, cardD, xCenters, centerY, centerZ } = SHOWCASE_LAYOUT;
+  const hw = cardW / 2;
+  const hh = cardH / 2;
+  const hd = cardD / 2;
+  const nCards = xCenters.length;
+  const perCard = Math.ceil(count / nCards);
+
+  for (let i = 0; i < count; i++) {
+    const cardIdx = Math.min(nCards - 1, Math.floor(i / perCard));
+    const cx = xCenters[cardIdx];
+    positions[i * 3]     = cx        + (rand() * 2 - 1) * hw;
+    positions[i * 3 + 1] = centerY   + (rand() * 2 - 1) * hh;
+    positions[i * 3 + 2] = centerZ   + (rand() * 2 - 1) * hd;
+    cardIndex[i] = cardIdx;
+  }
+
+  return { positions, cardIndex, edgeFlow: null };
+}
+
+/**
+ * Expanded mode — one big merged box. Letter shards land on that box's
+ * 12 edges (same snake-flow support as showcase mode). `cardIndex` is
+ * forced to 0 across the board since there's only one card visible;
+ * the dominant hue is selected separately by suspended-cloud via
+ * `dominantCard` on the showcase ref.
+ */
+export function computeExpandedLetterHomes(count: number): ShowcaseHomes {
+  const positions = new Float32Array(count * 3);
+  const cardIndex = new Int8Array(count);
+  const edgeFlow = new Float32Array(count * 4);
+  const rand = mulberry32(0xe89a1b1d);
+  const cardW = TUNING.expandedBoxW;
+  const cardH = TUNING.expandedBoxH;
+  const cardD = TUNING.expandedBoxD;
+  const hw = cardW / 2;
+  const hh = cardH / 2;
+  const hd = cardD / 2;
+  const { outlineJitter } = SHOWCASE_LAYOUT;
+
+  const totalEdgeLen = 4 * cardW + 4 * cardH + 4 * cardD;
+  const thX = (4 * cardW) / totalEdgeLen;
+  const thXY = (4 * cardW + 4 * cardH) / totalEdgeLen;
+
+  for (let i = 0; i < count; i++) {
+    const axisRoll = rand();
+    const cornerPick = rand();
+    const j1 = (rand() - 0.5) * outlineJitter;
+    const j2 = (rand() - 0.5) * outlineJitter;
+    const edgeT = rand();
+
+    let x: number;
+    let y: number;
+    let z: number;
+    let dx = 0;
+    let dy = 0;
+    let dz = 0;
+
+    if (axisRoll < thX) {
+      x = -hw + edgeT * cardW;
+      if (cornerPick < 0.25)      { y =  hh; z =  hd; }
+      else if (cornerPick < 0.5)  { y =  hh; z = -hd; }
+      else if (cornerPick < 0.75) { y = -hh; z =  hd; }
+      else                         { y = -hh; z = -hd; }
+      y += j1;
+      z += j2;
+      dx = 1;
+    } else if (axisRoll < thXY) {
+      y = -hh + edgeT * cardH;
+      if (cornerPick < 0.25)      { x =  hw; z =  hd; }
+      else if (cornerPick < 0.5)  { x =  hw; z = -hd; }
+      else if (cornerPick < 0.75) { x = -hw; z =  hd; }
+      else                         { x = -hw; z = -hd; }
+      x += j1;
+      z += j2;
+      dy = 1;
+    } else {
+      z = -hd + edgeT * cardD;
+      if (cornerPick < 0.25)      { x =  hw; y =  hh; }
+      else if (cornerPick < 0.5)  { x =  hw; y = -hh; }
+      else if (cornerPick < 0.75) { x = -hw; y =  hh; }
+      else                         { x = -hw; y = -hh; }
+      x += j1;
+      y += j2;
+      dz = 1;
+    }
+
+    positions[i * 3] = x;
+    positions[i * 3 + 1] = y;
+    positions[i * 3 + 2] = z;
+    cardIndex[i] = 0;
+    edgeFlow[i * 4]     = dx;
+    edgeFlow[i * 4 + 1] = dy;
+    edgeFlow[i * 4 + 2] = dz;
+    edgeFlow[i * 4 + 3] = edgeT;
+  }
+
+  return { positions, cardIndex, edgeFlow };
+}
+
+export function computeExpandedFrameHomes(count: number): ShowcaseHomes {
+  const positions = new Float32Array(count * 3);
+  const cardIndex = new Int8Array(count);
+  const rand = mulberry32(0xe89afb1e);
+  const hw = TUNING.expandedBoxW / 2;
+  const hh = TUNING.expandedBoxH / 2;
+  const hd = TUNING.expandedBoxD / 2;
+
+  for (let i = 0; i < count; i++) {
+    positions[i * 3]     = (rand() * 2 - 1) * hw;
+    positions[i * 3 + 1] = (rand() * 2 - 1) * hh;
+    positions[i * 3 + 2] = (rand() * 2 - 1) * hd;
+    cardIndex[i] = 0;
+  }
+
+  return { positions, cardIndex, edgeFlow: null };
 }
 
 function mulberry32(seed: number): () => number {

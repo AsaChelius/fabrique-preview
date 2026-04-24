@@ -16,12 +16,24 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { sampleSignSilhouette, type SampledLayers } from "./sampling";
 import { computePlacements, type Placement } from "./placements";
-import { Shards } from "./shards";
+import { Shards, type ShowcaseRef } from "./shards";
 import { ShardPhysicsDriver } from "./physics-driver";
 import { createPhysicsState, type ShardPhysicsState } from "./physics";
 import { useSculpturePalette } from "./palette";
-import { onShowcaseChange, isShowcaseActive } from "./showcase-bus";
-import { computeShowcaseHomes, SHOWCASE_LAYOUT } from "./showcase-targets";
+import {
+  onModeChange,
+  onHoveredChange,
+  getMode,
+  getExpandedCard,
+  getHoveredCard,
+  type ShowcaseMode,
+} from "./showcase-bus";
+import {
+  computeShowcaseLetterHomes,
+  computeShowcaseFrameHomes,
+  computeExpandedLetterHomes,
+  computeExpandedFrameHomes,
+} from "./showcase-targets";
 
 type Clouds = {
   letter: Placement[];
@@ -48,21 +60,32 @@ export function SuspendedCloud() {
     return { letter, frame, all, physics };
   }, [layers]);
 
-  // Letter shards morph into the 5 card outlines via the existing
-  // pendulum springs — no scatter burst. Frame shards redistribute
-  // uniformly across the plaque rectangle so the FABRIQUE letter
-  // knockouts get filled in and the backdrop reads as a plain box
-  // instead of still spelling "FABRIQUE" in negative space.
+  // Showcase: BOTH shard groups collapse into the 5 cards. Letter shards
+  // land on the card wireframe edges (real 3D depth — same forward/back
+  // range as FABRIQUE). Frame shards fill the card interior volumes —
+  // no grey left between cards. Each shard receives a `cardIndex` so
+  // the Shards component's per-frame chameleon color flow can tint it.
   const originalLetterHomes = useRef<Float32Array | null>(null);
   const originalFrameHomes = useRef<Float32Array | null>(null);
-  const frameBbox = useRef<{
-    minX: number;
-    maxX: number;
-    minY: number;
-    maxY: number;
-    minZ: number;
-    maxZ: number;
-  } | null>(null);
+
+  // ShowcaseRef = live pointer into current mode + card assignment +
+  // edge-flow data + hover/dominant-card signals. Shards reads this
+  // ref per-frame to decide chameleon color, snake-wave flow, hover
+  // glow, and expanded-mode single-hue override. Stable across renders.
+  const letterShowcase = useRef<ShowcaseRef>({
+    active: false,
+    cardIndex: null,
+    edgeFlow: null,
+    hoveredCard: null,
+    dominantCard: null,
+  });
+  const frameShowcase = useRef<ShowcaseRef>({
+    active: false,
+    cardIndex: null,
+    edgeFlow: null,
+    hoveredCard: null,
+    dominantCard: null,
+  });
 
   useEffect(() => {
     if (!clouds) return;
@@ -85,76 +108,61 @@ export function SuspendedCloud() {
         frameStart3,
         frameStart3 + frameSize3,
       );
-      // Compute the axis-aligned bbox of the plaque once so we can
-      // redistribute frame shards uniformly inside it during showcase.
-      let minX = Infinity, maxX = -Infinity;
-      let minY = Infinity, maxY = -Infinity;
-      let minZ = Infinity, maxZ = -Infinity;
-      const h = originalFrameHomes.current;
-      for (let i = 0; i < frameCount; i++) {
-        const x = h[i * 3];
-        const y = h[i * 3 + 1];
-        const z = h[i * 3 + 2];
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-        if (z < minZ) minZ = z;
-        if (z > maxZ) maxZ = z;
-      }
-      frameBbox.current = { minX, maxX, minY, maxY, minZ, maxZ };
     }
 
-    const applyShowcase = (active: boolean) => {
+    const applyMode = (mode: ShowcaseMode, expandedCard: number | null) => {
       const home = state.home;
       const offset = state.offset;
-
-      // Snapshot the old homes so we can compensate offsets below. If we
-      // just overwrite home without touching offset, each shard's world
-      // position (= home + offset) jumps by exactly (new_home - old_home),
-      // which reads as an instant teleport. Adding the delta to offset
-      // keeps every shard visually in place at the moment of the swap,
-      // and the existing pendulum springs then lerp offset back toward 0
-      // — giving the smooth animated morph the user asked for.
+      // Snapshot old home so we can compensate offsets — otherwise every
+      // shard teleports by (new - old) at the swap. The pendulum springs
+      // then lerp offset back to 0 and the morph animates.
       const oldHome = home.slice();
 
-      if (active) {
-        home.set(computeShowcaseHomes(letterCount), letterStart3);
-        // Frame shards form a single backdrop rectangle covering the
-        // original plaque bbox, but skipping the interiors of the 5 card
-        // outlines so the black boxes stay visually empty (reserved for
-        // future colorful shapes).
-        const bb = frameBbox.current;
-        if (bb) {
-          const { cardW, cardH, xCenters, centerY } = SHOWCASE_LAYOUT;
-          const halfW = cardW / 2;
-          const halfH = cardH / 2;
-          const insideMargin = 0.12;
-          for (let i = 0; i < frameCount; i++) {
-            let x = 0;
-            let y = 0;
-            for (let attempt = 0; attempt < 20; attempt++) {
-              x = bb.minX + Math.random() * (bb.maxX - bb.minX);
-              y = bb.minY + Math.random() * (bb.maxY - bb.minY);
-              let insideCard = false;
-              for (let c = 0; c < xCenters.length; c++) {
-                const cx = xCenters[c];
-                if (
-                  Math.abs(x - cx) < halfW - insideMargin &&
-                  Math.abs(y - centerY) < halfH - insideMargin
-                ) {
-                  insideCard = true;
-                  break;
-                }
-              }
-              if (!insideCard) break;
-            }
-            const i3 = i * 3;
-            home[i3]     = x;
-            home[i3 + 1] = y;
-            home[i3 + 2] = bb.minZ + Math.random() * (bb.maxZ - bb.minZ);
-          }
-        }
+      // Preserve hover state across mode changes — only the mode-related
+      // fields get overwritten here.
+      const prevHoveredL = letterShowcase.current.hoveredCard;
+      const prevHoveredF = frameShowcase.current.hoveredCard;
+
+      if (mode === "showcase") {
+        const letterResult = computeShowcaseLetterHomes(letterCount);
+        home.set(letterResult.positions, letterStart3);
+        letterShowcase.current = {
+          active: true,
+          cardIndex: letterResult.cardIndex,
+          edgeFlow: letterResult.edgeFlow,
+          hoveredCard: prevHoveredL,
+          dominantCard: null,
+        };
+
+        const frameResult = computeShowcaseFrameHomes(frameCount);
+        home.set(frameResult.positions, frameStart3);
+        frameShowcase.current = {
+          active: true,
+          cardIndex: frameResult.cardIndex,
+          edgeFlow: frameResult.edgeFlow,
+          hoveredCard: prevHoveredF,
+          dominantCard: null,
+        };
+      } else if (mode === "expanded") {
+        const letterResult = computeExpandedLetterHomes(letterCount);
+        home.set(letterResult.positions, letterStart3);
+        letterShowcase.current = {
+          active: true,
+          cardIndex: letterResult.cardIndex,
+          edgeFlow: letterResult.edgeFlow,
+          hoveredCard: null,
+          dominantCard: expandedCard,
+        };
+
+        const frameResult = computeExpandedFrameHomes(frameCount);
+        home.set(frameResult.positions, frameStart3);
+        frameShowcase.current = {
+          active: true,
+          cardIndex: frameResult.cardIndex,
+          edgeFlow: frameResult.edgeFlow,
+          hoveredCard: null,
+          dominantCard: expandedCard,
+        };
       } else {
         if (originalLetterHomes.current) {
           home.set(originalLetterHomes.current, letterStart3);
@@ -162,6 +170,20 @@ export function SuspendedCloud() {
         if (originalFrameHomes.current) {
           home.set(originalFrameHomes.current, frameStart3);
         }
+        letterShowcase.current = {
+          active: false,
+          cardIndex: null,
+          edgeFlow: null,
+          hoveredCard: null,
+          dominantCard: null,
+        };
+        frameShowcase.current = {
+          active: false,
+          cardIndex: null,
+          edgeFlow: null,
+          hoveredCard: null,
+          dominantCard: null,
+        };
       }
 
       // Compensate offsets so world positions are preserved at the swap.
@@ -170,8 +192,22 @@ export function SuspendedCloud() {
       }
     };
 
-    applyShowcase(isShowcaseActive());
-    return onShowcaseChange(applyShowcase);
+    applyMode(getMode(), getExpandedCard());
+    // Hover doesn't change shard homes — it only repaints color via the
+    // ShowcaseRef field the Shards useFrame reads every tick. So the
+    // hover listener simply mutates the ref in place.
+    letterShowcase.current.hoveredCard = getHoveredCard();
+    frameShowcase.current.hoveredCard = getHoveredCard();
+
+    const unsubMode = onModeChange(applyMode);
+    const unsubHover = onHoveredChange((h) => {
+      letterShowcase.current.hoveredCard = h;
+      frameShowcase.current.hoveredCard = h;
+    });
+    return () => {
+      unsubMode();
+      unsubHover();
+    };
   }, [clouds]);
 
   if (!clouds) return null;
@@ -187,12 +223,16 @@ export function SuspendedCloud() {
         color={palette.frameShard}
         state={clouds.physics}
         stateStart={frameStart}
+        showcaseRef={frameShowcase}
+        showcaseMotion="wind"
       />
       <Shards
         placements={clouds.letter}
         color={palette.letterShard}
         state={clouds.physics}
         stateStart={letterStart}
+        showcaseRef={letterShowcase}
+        showcaseMotion="snake"
       />
     </>
   );
