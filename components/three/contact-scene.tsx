@@ -282,7 +282,7 @@ function CRTMonitor({
       <Html
         position={[0, 0.04, D_FRONT / 2 - 0.115]}
         transform
-        scale={0.0013}
+        scale={0.002}
         pointerEvents={view === "computer" ? "auto" : "none"}
         wrapperClass="crt-html"
         zIndexRange={[0, 10]}
@@ -633,36 +633,142 @@ function RetinalNoise() {
 
 /** Phantom cloud — a dim blob of points that slowly breathes. A couple of
     these at the periphery make it feel like clouds looming in the dark. */
+type PhantomShape = "figure" | "eye" | "hand" | "scribble" | "spiral" | "crescent";
+
+/** Generate a "weird shape" point cloud — five shape variants dialed to
+    read as half-seen somethings in the dark, not uniform blobs. Each
+    returns N (x,y,z) triplets in a 1-ish-unit footprint. */
+function genPhantomShape(shape: PhantomShape, N: number, seed: number) {
+  const rng = (n: number) => {
+    const x = Math.sin(seed + n * 12.9898) * 43758.5453;
+    return x - Math.floor(x);
+  };
+  let k = 0;
+  const r = () => rng(k++);
+  const pts = new Float32Array(N * 3);
+  const set = (i: number, x: number, y: number, z: number) => {
+    pts[i * 3] = x; pts[i * 3 + 1] = y; pts[i * 3 + 2] = z;
+  };
+  if (shape === "figure") {
+    // Tall humanoid silhouette — head, torso, suggestion of arms
+    const headN = Math.floor(N * 0.22);
+    const bodyN = Math.floor(N * 0.55);
+    const armN = N - headN - bodyN;
+    for (let i = 0; i < headN; i++) {
+      const theta = r() * Math.PI * 2;
+      const rr = Math.sqrt(r()) * 0.3;
+      set(i, Math.cos(theta) * rr, 1.1 + Math.sin(theta) * rr, (r() - 0.5) * 0.15);
+    }
+    for (let i = 0; i < bodyN; i++) {
+      const t = r();
+      const w = 0.45 * (1 - t * 0.3);
+      set(headN + i, (r() - 0.5) * w * 2, 0.7 - t * 1.5, (r() - 0.5) * 0.2);
+    }
+    for (let i = 0; i < armN; i++) {
+      const side = r() > 0.5 ? 1 : -1;
+      const t = r();
+      set(
+        headN + bodyN + i,
+        side * (0.5 + t * 0.9),
+        0.55 - t * 1.4 + (r() - 0.5) * 0.25,
+        (r() - 0.5) * 0.2,
+      );
+    }
+  } else if (shape === "eye") {
+    // Almond eye shape — outline + iris + pupil
+    for (let i = 0; i < N * 0.6; i++) {
+      // Outline — ellipse with some edge noise, biased toward lids
+      const t = r();
+      const theta = t * Math.PI * 2;
+      const rr = 1 + (r() - 0.5) * 0.1;
+      const x = Math.cos(theta) * rr;
+      const y = Math.sin(theta) * rr * 0.45;
+      set(i, x, y, (r() - 0.5) * 0.1);
+    }
+    // Iris ring
+    for (let i = N * 0.6; i < N * 0.88; i++) {
+      const theta = r() * Math.PI * 2;
+      const rr = 0.32 + r() * 0.06;
+      set(i, Math.cos(theta) * rr, Math.sin(theta) * rr * 0.9, (r() - 0.5) * 0.08);
+    }
+    // Pupil (dense center)
+    for (let i = N * 0.88; i < N; i++) {
+      set(i, (r() - 0.5) * 0.14, (r() - 0.5) * 0.14, (r() - 0.5) * 0.05);
+    }
+  } else if (shape === "hand") {
+    // 5-finger hand — palm cluster + 5 elongated fingers
+    for (let i = 0; i < N * 0.3; i++) {
+      // Palm
+      set(i, (r() - 0.5) * 0.7, -0.3 + (r() - 0.5) * 0.5, (r() - 0.5) * 0.2);
+    }
+    const perFinger = Math.floor((N * 0.7) / 5);
+    const fingerAngles = [-0.5, -0.25, 0, 0.25, 0.5];
+    for (let f = 0; f < 5; f++) {
+      const baseX = fingerAngles[f] * 0.7;
+      for (let j = 0; j < perFinger; j++) {
+        const t = r();
+        const dx = (r() - 0.5) * 0.08;
+        set(
+          N * 0.3 + f * perFinger + j,
+          baseX + dx + fingerAngles[f] * t * 0.3,
+          0.0 + t * 1.0,
+          (r() - 0.5) * 0.15,
+        );
+      }
+    }
+  } else if (shape === "scribble") {
+    // Chaotic wandering path — random-walk points connected by proximity
+    let x = 0, y = 0, z = 0;
+    for (let i = 0; i < N; i++) {
+      x += (r() - 0.5) * 0.35;
+      y += (r() - 0.5) * 0.35;
+      z += (r() - 0.5) * 0.15;
+      // Pull back toward origin so it stays contained
+      x *= 0.98; y *= 0.98; z *= 0.95;
+      set(i, x, y, z);
+    }
+  } else if (shape === "spiral") {
+    // Outward logarithmic spiral
+    for (let i = 0; i < N; i++) {
+      const t = i / N;
+      const theta = t * Math.PI * 6;
+      const rr = t * 1.3;
+      const jitter = (r() - 0.5) * 0.08;
+      set(i, Math.cos(theta) * rr + jitter, Math.sin(theta) * rr + jitter, (r() - 0.5) * 0.15);
+    }
+  } else {
+    // Crescent — partial thick arc
+    for (let i = 0; i < N; i++) {
+      const theta = (r() * 0.9 - 0.45) * Math.PI + Math.PI / 2;
+      const rr = 1 + (r() - 0.5) * 0.3;
+      set(i, Math.cos(theta) * rr, Math.sin(theta) * rr, (r() - 0.5) * 0.15);
+    }
+  }
+  return pts;
+}
+
 function PhantomCloud({
   position,
   tint,
   seed = 0,
   scale = 1,
+  shape = "figure",
 }: {
   position: [number, number, number];
   tint: string;
   seed?: number;
   scale?: number;
+  shape?: PhantomShape;
 }) {
   const ref = useRef<THREE.Points>(null);
   const { pointer, camera } = useThree();
   const geometry = useMemo(() => {
     const N = 420;
-    const pos = new Float32Array(N * 3);
-    for (let i = 0; i < N; i++) {
-      const u1 = Math.random() || 0.001;
-      const u2 = Math.random();
-      const g1 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-      const g2 = Math.sqrt(-2 * Math.log(u1)) * Math.sin(2 * Math.PI * u2);
-      const g3 = (Math.random() - 0.5) * 2;
-      pos[i * 3] = g1 * 1.6;
-      pos[i * 3 + 1] = g2 * 1.1;
-      pos[i * 3 + 2] = g3 * 0.6;
-    }
+    const pts = genPhantomShape(shape, N, seed);
     const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("position", new THREE.BufferAttribute(pts, 3));
     return g;
-  }, []);
+  }, [shape, seed]);
   const baseScale = useRef(scale);
   const cursorWorld = useMemo(() => new THREE.Vector3(), []);
   const repulse = useRef({ x: 0, y: 0 });
@@ -702,10 +808,10 @@ function PhantomCloud({
     <points ref={ref} position={position} scale={scale}>
       <primitive object={geometry} attach="geometry" />
       <pointsMaterial
-        size={4.5}
+        size={2.2}
         color={tint}
         transparent
-        opacity={0.55}
+        opacity={0.4}
         sizeAttenuation={false}
         depthWrite={false}
         blending={THREE.AdditiveBlending}
@@ -1014,6 +1120,12 @@ export function ContactScene() {
       shadows
       gl={{ antialias: true, alpha: false }}
       style={{ width: "100%", height: "100%" }}
+      onPointerMissed={() => {
+        // Click anywhere off the monitor/form → back out to overview.
+        // R3F only fires this when no mesh was hit; clicks on the form
+        // (HTML) never reach the canvas so they're safe.
+        if (view === "computer") onClose();
+      }}
     >
       <Suspense fallback={null}>
         <color attach="background" args={["#020205"]} />
@@ -1039,15 +1151,18 @@ export function ContactScene() {
         <RetinalNoise />
         <Floaters />
         <AfterimageBlob />
-        {/* Phantom clouds — all positioned above the ground (y > 0) so
-            they don't render beneath the floor plane. Spread around the
-            periphery of the camera view. */}
-        <PhantomCloud position={[-5, 3.5, 2]} tint="#6090ff" seed={11} scale={1.6} />
-        <PhantomCloud position={[5, 2.2, 1]} tint="#ff80c0" seed={29} scale={1.4} />
-        <PhantomCloud position={[-4, 5.5, 3]} tint="#80c060" seed={47} scale={1.2} />
-        <PhantomCloud position={[6, 4.5, -1]} tint="#c080ff" seed={73} scale={1.8} />
-        <PhantomCloud position={[-7, 1.8, 0]} tint="#ffb060" seed={101} scale={1.5} />
-        <PhantomCloud position={[4, 1.6, 2]} tint="#60ffc0" seed={127} scale={1.3} />
+        {/* Phantom shapes — weird half-seen things the eye invents in
+            the dark. Dim, low-saturation tints, irregular geometries
+            (figures, eyes, hands, scribbles, spirals, crescents).
+            All above ground. */}
+        <PhantomCloud position={[-6, 3.0, 2]} tint="#4a5c80" seed={11} scale={1.4} shape="figure" />
+        <PhantomCloud position={[5.5, 3.8, 1]} tint="#5a4860" seed={29} scale={1.0} shape="eye" />
+        <PhantomCloud position={[-4.5, 5.0, 3]} tint="#4a6a50" seed={47} scale={1.2} shape="hand" />
+        <PhantomCloud position={[6.5, 5.2, -1]} tint="#60485a" seed={73} scale={1.6} shape="scribble" />
+        <PhantomCloud position={[-7.5, 2.2, 0]} tint="#5a4a38" seed={101} scale={1.3} shape="spiral" />
+        <PhantomCloud position={[4.2, 1.6, 2]} tint="#3a5060" seed={127} scale={1.1} shape="crescent" />
+        <PhantomCloud position={[0, 7.2, -2]} tint="#484058" seed={157} scale={1.5} shape="figure" />
+        <PhantomCloud position={[-8, 6.0, -1]} tint="#3e4e60" seed={191} scale={1.3} shape="eye" />
       </Suspense>
     </Canvas>
   );

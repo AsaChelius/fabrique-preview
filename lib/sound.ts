@@ -235,87 +235,82 @@ export function startLoop(name: "contact-ambient" | "contact-crt-hum"): LoopHand
   if (!c || !masterGain) return null;
   if (loops[name]) return loops[name];
   if (name === "contact-ambient") {
-    // Low drone — two detuned sines way below the ear's sensitivity peak,
-    // plus a slow-drift lowpass filter wobble, plus faint pink-ish noise.
+    // Quiet room tone — filtered pink-ish noise, no cinematic sub bass.
+    // Intent: "empty room at night", not "impending doom". Sits low in
+    // the mix so the CRT buzz can read over it.
     const bus = c.createGain();
-    bus.gain.value = 0.25;
+    bus.gain.value = 0.15;
     bus.connect(masterGain);
-    const lp = c.createBiquadFilter();
-    lp.type = "lowpass";
-    lp.frequency.value = 320;
-    lp.Q.value = 0.6;
-    lp.connect(bus);
-    const lfo = c.createOscillator();
-    lfo.frequency.value = 0.08;
-    const lfoGain = c.createGain();
-    lfoGain.gain.value = 80;
-    lfo.connect(lfoGain).connect(lp.frequency);
-    lfo.start();
-    const o1 = c.createOscillator();
-    o1.type = "sine";
-    o1.frequency.value = 48;
-    const o2 = c.createOscillator();
-    o2.type = "sine";
-    o2.frequency.value = 51;
-    const og = c.createGain();
-    og.gain.value = 0.55;
-    o1.connect(og); o2.connect(og); og.connect(lp);
-    o1.start(); o2.start();
-    // Brown-ish noise for room tone
+    const bp = c.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 500;
+    bp.Q.value = 0.6;
+    bp.connect(bus);
     const nb = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
     const nd = nb.getChannelData(0);
     let last = 0;
     for (let i = 0; i < nd.length; i++) {
       const white = Math.random() * 2 - 1;
-      last = (last + 0.02 * white) / 1.02;
-      nd[i] = last * 3;
+      last = (last + 0.04 * white) / 1.04;
+      nd[i] = last * 2.5;
     }
     const ns = c.createBufferSource();
     ns.buffer = nb;
     ns.loop = true;
     const ng = c.createGain();
-    ng.gain.value = 0.1;
-    ns.connect(ng).connect(lp);
+    ng.gain.value = 0.35;
+    ns.connect(ng).connect(bp);
     ns.start();
     const handle: LoopHandle = {
       gain: bus,
       stop: () => {
-        try { o1.stop(); o2.stop(); lfo.stop(); ns.stop(); } catch {}
+        try { ns.stop(); } catch {}
       },
     };
     loops[name] = handle;
     return handle;
   }
   if (name === "contact-crt-hum") {
-    // Electrical CRT hum — 60 Hz drone + high-pitched flyback whine at
-    // ~15.7 kHz. Volume modulated externally based on camera proximity.
+    // Electrical BUZZ — sawtooth at 120 Hz (rectified mains harmonic)
+    // through a narrow bandpass in the 400–800 Hz zone to focus the
+    // buzz register. AM tremolo at 60 Hz gives it the classic
+    // transformer/fluorescent-ballast "bzzzzzt" character instead of
+    // the cinematic drone feel.
     const bus = c.createGain();
     bus.gain.value = 0;
     bus.connect(masterGain);
-    const o1 = c.createOscillator();
-    o1.type = "sine";
-    o1.frequency.value = 60;
-    const og1 = c.createGain();
-    og1.gain.value = 0.4;
-    o1.connect(og1).connect(bus);
-    o1.start();
-    // High flyback whine — classic CRT signature. Soft so it doesn't
-    // fatigue immediately; bandpass clean.
-    const o2 = c.createOscillator();
-    o2.type = "sine";
-    o2.frequency.value = 15734; // NTSC horizontal frequency
+    // Main sawtooth buzz
+    const saw = c.createOscillator();
+    saw.type = "sawtooth";
+    saw.frequency.value = 120;
     const bp = c.createBiquadFilter();
     bp.type = "bandpass";
-    bp.frequency.value = 15734;
-    bp.Q.value = 5;
-    const og2 = c.createGain();
-    og2.gain.value = 0.06;
-    o2.connect(bp).connect(og2).connect(bus);
-    o2.start();
+    bp.frequency.value = 600;
+    bp.Q.value = 2.5;
+    const sg = c.createGain();
+    sg.gain.value = 0.35;
+    saw.connect(bp).connect(sg).connect(bus);
+    saw.start();
+    // AM tremolo — LFO modulating the sawtooth's gain so it "buzzes"
+    const trem = c.createOscillator();
+    trem.type = "sine";
+    trem.frequency.value = 60;
+    const tremGain = c.createGain();
+    tremGain.gain.value = 0.4; // depth
+    trem.connect(tremGain).connect(sg.gain);
+    trem.start();
+    // Small 60 Hz body — just to give it some pitched weight, no sub
+    const body = c.createOscillator();
+    body.type = "sine";
+    body.frequency.value = 60;
+    const bodyG = c.createGain();
+    bodyG.gain.value = 0.12;
+    body.connect(bodyG).connect(bus);
+    body.start();
     const handle: LoopHandle = {
       gain: bus,
       stop: () => {
-        try { o1.stop(); o2.stop(); } catch {}
+        try { saw.stop(); trem.stop(); body.stop(); } catch {}
       },
     };
     loops[name] = handle;
