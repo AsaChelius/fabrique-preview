@@ -411,23 +411,38 @@ function DistantPlanet({
   });
   return (
     <group ref={ref} position={position} scale={scale}>
+      {/* Planet body — self-lit so it reads against the starfield without
+          depending on scene lights that don't reach that deep into -Z. */}
       <mesh>
-        <sphereGeometry args={[1, 20, 20]} />
+        <sphereGeometry args={[1, 24, 24]} />
         <meshStandardMaterial
           color={color}
-          roughness={0.6}
+          roughness={0.5}
           metalness={0.2}
           emissive={color}
-          emissiveIntensity={0.25}
+          emissiveIntensity={1.6}
+          toneMapped={false}
+        />
+      </mesh>
+      {/* Additive halo — reads as an atmospheric bloom at distance */}
+      <mesh scale={1.55}>
+        <sphereGeometry args={[1, 18, 18]} />
+        <meshBasicMaterial
+          color={color}
+          transparent
+          opacity={0.18}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
         />
       </mesh>
       {ringed && (
         <mesh rotation={[Math.PI / 2.3, 0, 0.2]}>
-          <ringGeometry args={[1.35, 1.8, 48]} />
+          <ringGeometry args={[1.35, 1.9, 64]} />
           <meshBasicMaterial
             color={color}
             transparent
-            opacity={0.35}
+            opacity={0.7}
             side={THREE.DoubleSide}
             toneMapped={false}
           />
@@ -632,8 +647,8 @@ function PixelNebula({
   seed = 0,
   warm = "#ffb080",
   cool = "#8fb8ff",
-  pointSize = 0.07,
-  opacity = 0.85,
+  pointSize = 3,
+  opacity = 0.95,
 }: {
   position: [number, number, number];
   scale?: number;
@@ -673,7 +688,9 @@ function PixelNebula({
       const c = coolC.clone().lerp(warmC, Math.abs(Math.cos(theta)) * 0.45);
       push(x, y, (rand(i + 600) - 0.5) * 0.08, c);
     }
-    // Concentric halo rings — the signature Cat's-Eye detail
+    // Concentric halo rings — the signature Cat's-Eye detail.
+    // Boost baseline brightness since additive blend against near-black
+    // sky needs strong source values to read as luminous at distance.
     for (let ring = 0; ring < 7; ring++) {
       const base = 0.7 + ring * 0.18;
       const count = 80 + ring * 14;
@@ -684,7 +701,7 @@ function PixelNebula({
         const x = Math.cos(theta) * rr * 1.55;
         const y = Math.sin(theta) * rr * 0.95;
         const atten = 1 - ring / 8;
-        const c = coolC.clone().multiplyScalar(0.4 + atten * 0.6);
+        const c = coolC.clone().multiplyScalar(0.9 + atten * 0.5);
         push(x, y, (rand(i + ring * 1200) - 0.5) * 0.04, c);
       }
     }
@@ -695,7 +712,7 @@ function PixelNebula({
         const x = side * (1.6 + t * 1.4);
         const y = (rand(i + side * 2100) - 0.5) * 0.15 + Math.sin(t * 4) * 0.08;
         const z = (rand(i + side * 2200) - 0.5) * 0.08;
-        const c = warmC.clone().multiplyScalar(0.55 + rand(i + side * 2300) * 0.4);
+        const c = warmC.clone().multiplyScalar(1.1 + rand(i + side * 2300) * 0.3);
         push(x, y, z, c);
       }
     }
@@ -740,7 +757,7 @@ function PixelNebula({
         opacity={opacity}
         blending={THREE.AdditiveBlending}
         depthWrite={false}
-        sizeAttenuation
+        sizeAttenuation={false}
         toneMapped={false}
       />
     </points>
@@ -982,13 +999,13 @@ function GalaxySpiral({
     <points ref={ref} position={position} scale={scale} rotation={[0.6, 0, 0]}>
       <primitive object={geometry} attach="geometry" />
       <pointsMaterial
-        size={0.055}
+        size={2.5}
         vertexColors
         transparent
-        opacity={0.85}
+        opacity={0.95}
         blending={THREE.AdditiveBlending}
         depthWrite={false}
-        sizeAttenuation
+        sizeAttenuation={false}
         toneMapped={false}
       />
     </points>
@@ -1019,8 +1036,8 @@ function DistantBackground() {
         seed={7}
         warm="#ff9068"
         cool="#88b8ff"
-        pointSize={0.09}
-        opacity={0.8}
+        pointSize={3.2}
+        opacity={1}
       />
       <PixelNebula
         position={[20, -5, -45]}
@@ -1028,8 +1045,8 @@ function DistantBackground() {
         seed={23}
         warm="#ffb080"
         cool="#b0a0ff"
-        pointSize={0.11}
-        opacity={0.7}
+        pointSize={3.6}
+        opacity={0.95}
       />
       <PixelNebula
         position={[0, 13, -50]}
@@ -1037,8 +1054,8 @@ function DistantBackground() {
         seed={41}
         warm="#80ffc0"
         cool="#6090ff"
-        pointSize={0.08}
-        opacity={0.6}
+        pointSize={2.8}
+        opacity={0.9}
       />
       <PixelNebula
         position={[-12, -14, -46]}
@@ -1046,8 +1063,8 @@ function DistantBackground() {
         seed={73}
         warm="#ff80a0"
         cool="#80d0ff"
-        pointSize={0.1}
-        opacity={0.75}
+        pointSize={3.2}
+        opacity={0.95}
       />
 
       {/* Very-far spiral galaxy — face-tilted so it reads as a disc */}
