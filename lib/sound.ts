@@ -717,34 +717,79 @@ export function playSound(name: SoundName, volume = 1) {
       break;
     }
     case "flicker": {
-      // Short electrical crackle — bursts of filtered noise with a sharp
-      // descending pitch. Signature dying-fluorescent sound.
-      const dur = 0.22;
-      const nb = c.createBuffer(1, c.sampleRate * dur, c.sampleRate);
-      const nd = nb.getChannelData(0);
-      for (let i = 0; i < nd.length; i++) {
-        const t = i / c.sampleRate;
-        // Three quick bursts across the duration
-        const env = Math.max(
-          0,
-          Math.sin(t * 40) * Math.exp(-t * 12) +
-            Math.sin(t * 90) * Math.exp(-(t - 0.08) * 18) +
-            Math.sin(t * 120) * Math.exp(-(t - 0.14) * 22),
-        );
-        nd[i] = (Math.random() * 2 - 1) * env;
-      }
-      const ns = c.createBufferSource();
-      ns.buffer = nb;
-      const bp = c.createBiquadFilter();
-      bp.type = "bandpass";
-      bp.frequency.setValueAtTime(3200, now);
-      bp.frequency.exponentialRampToValueAtTime(800, now + dur);
-      bp.Q.value = 3;
-      const g = c.createGain();
-      g.gain.value = v * 0.55;
-      ns.connect(bp).connect(g).connect(masterGain);
-      ns.start(now);
-      ns.stop(now + dur + 0.02);
+      // Light bulb flicker — sequence of sharp mechanical clicks (the
+      // relay/contact of a switch making and breaking) with brief fizz
+      // bursts between them (gas-discharge tube trying to ignite). The
+      // whole thing ends with an electrical "power-off" tail: descending
+      // sawtooth (capacitor discharge) + crackle fizz, so the spotlight
+      // reads as actually TURNING OFF in electrical fashion.
+      const mg = masterGain;
+      const click = (at: number, level: number, bright: number) => {
+        const d = 0.024;
+        const nb = c.createBuffer(1, c.sampleRate * d, c.sampleRate);
+        const nd = nb.getChannelData(0);
+        for (let i = 0; i < nd.length; i++) {
+          nd[i] = (Math.random() * 2 - 1) * (1 - i / nd.length);
+        }
+        const ns = c.createBufferSource();
+        ns.buffer = nb;
+        const bp = c.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.frequency.value = bright;
+        bp.Q.value = 2.4;
+        const g = c.createGain();
+        g.gain.value = v * level;
+        ns.connect(bp).connect(g).connect(mg);
+        ns.start(now + at);
+        ns.stop(now + at + d + 0.005);
+      };
+      const fizz = (at: number, d: number, level: number) => {
+        const nb = c.createBuffer(1, c.sampleRate * d, c.sampleRate);
+        const nd = nb.getChannelData(0);
+        for (let i = 0; i < nd.length; i++) {
+          const t = i / c.sampleRate;
+          const env = Math.exp(-t * 10) * (Math.random() < 0.35 ? 1 : 0.15);
+          nd[i] = (Math.random() * 2 - 1) * env;
+        }
+        const ns = c.createBufferSource();
+        ns.buffer = nb;
+        const hp = c.createBiquadFilter();
+        hp.type = "highpass";
+        hp.frequency.value = 1400;
+        const g = c.createGain();
+        g.gain.value = v * level;
+        ns.connect(hp).connect(g).connect(mg);
+        ns.start(now + at);
+        ns.stop(now + at + d);
+      };
+      // Uneven relay clicks — a light struggling to stay on.
+      click(0.00, 0.75, 3000);
+      fizz(0.02, 0.08, 0.30);
+      click(0.14, 0.55, 2500);
+      click(0.27, 0.50, 2800);
+      fizz(0.30, 0.10, 0.32);
+      if (Math.random() > 0.4) click(0.42, 0.45, 2300);
+      click(0.58, 0.65, 2650);
+      // --- "Off in electrical fashion" tail — descending capacitor
+      //     discharge + sustained fizz over ~260ms. The payoff that sells
+      //     the light actually shutting down, not just muted. ---
+      const tailAt = 0.70;
+      const tailDur = 0.26;
+      const pOsc = c.createOscillator();
+      pOsc.type = "sawtooth";
+      pOsc.frequency.setValueAtTime(280, now + tailAt);
+      pOsc.frequency.exponentialRampToValueAtTime(55, now + tailAt + tailDur);
+      const pBp = c.createBiquadFilter();
+      pBp.type = "bandpass";
+      pBp.frequency.value = 380;
+      pBp.Q.value = 4;
+      const pG = c.createGain();
+      pG.gain.setValueAtTime(v * 0.38, now + tailAt);
+      pG.gain.exponentialRampToValueAtTime(0.0001, now + tailAt + tailDur);
+      pOsc.connect(pBp).connect(pG).connect(mg);
+      pOsc.start(now + tailAt);
+      pOsc.stop(now + tailAt + tailDur + 0.02);
+      fizz(tailAt, tailDur, 0.5);
       break;
     }
     case "win98-ding": {

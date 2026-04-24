@@ -34,6 +34,10 @@ import type { ContactFormData, ContactFormResponse } from "@/types/contact";
 type View = "overview" | "computer";
 type ScreenState = "boot" | "loading" | "form";
 const TABLE_TOP_Y = 2.25;
+// Ground drops BELOW y=0 so the setup "hangs" higher in frame without
+// moving the camera. Table legs stretch to reach this new floor; the
+// spotlight beam extends down to it too.
+const GROUND_Y = -1.4;
 
 // -----------------------------------------------------------------------------
 // Wooden table — visible structure (legs, apron, grain). Replaces the plinth.
@@ -98,12 +102,14 @@ function useWoodTexture(): THREE.CanvasTexture | null {
 
 function WoodenTable() {
   const wood = useWoodTexture();
-  const TOP_W = 1.7;   // narrower
-  const TOP_D = 1.25;  // proportionally deeper
+  const TOP_W = 1.7;
+  const TOP_D = 1.25;
   const TOP_THICK = 0.1;
-  const TOP_Y = TABLE_TOP_Y; // taller overall (see const at top)
+  const TOP_Y = TABLE_TOP_Y;
   const LEG_W = 0.1;
-  const LEG_H = TOP_Y - TOP_THICK;
+  // Legs reach from the (now lower) ground up to the underside of the top.
+  const LEG_H = TOP_Y - TOP_THICK - GROUND_Y;
+  const LEG_CENTER_Y = GROUND_Y + LEG_H / 2;
   const APRON_H = 0.22;
   const legColor = "#3a2410";
   return (
@@ -156,7 +162,7 @@ function WoodenTable() {
           key={i}
           position={[
             sx * (TOP_W / 2 - LEG_W / 2 - 0.02),
-            LEG_H / 2,
+            LEG_CENTER_Y,
             sz * (TOP_D / 2 - LEG_W / 2 - 0.02),
           ]}
           castShadow
@@ -334,7 +340,6 @@ function CameraRig({ view }: { view: View }) {
       basePos.current.set(0, TABLE_TOP_Y + 0.55, 2.3);
       baseLook.current.set(0, TABLE_TOP_Y + 0.55, 0);
     } else {
-      // Pushed FURTHER back — table + CRT + beam all read as distant.
       basePos.current.set(5.8, 3.3, 15.5);
       baseLook.current.set(-0.2, 1.8, 0);
     }
@@ -424,19 +429,32 @@ function ContactAudio() {
   }, []);
   useFrame(() => {
     const d = camera.position.distanceTo(monitorPos);
-    // Map distance 2.0 → 1.0 (full volume when zoomed in) and 12 → ~0.1
-    // (barely audible in overview).
+    // Steep cubic falloff — silent in overview (d > ~10), rises decisively
+    // only when the camera has zoomed to the screen. No audible floor at
+    // distance — the buzz should feel like a property of being NEXT to
+    // the monitor, not a constant background tone.
     const near = 2.0;
-    const far = 12.0;
+    const far = 10.5;
     const t = Math.max(0, Math.min(1, (far - d) / (far - near)));
-    setLoopVolume("contact-crt-hum", 0.08 + t * 0.9);
+    setLoopVolume("contact-crt-hum", t * t * t * 0.95);
   });
   return null;
 }
 
+/** Light flicker — the spotlight physically toggles ON/OFF in discrete
+ *  pulses (not random jitter). Off periods are longer than on flashes so
+ *  the beam reads as a lamp struggling to stay lit, not a rave strobe.
+ *  The last pulse of every flicker event is OFF, so the light "snaps
+ *  back on" at the end — the sound layer sells the electrical character. */
 function SpotlightFlicker() {
   const { scene } = useThree();
-  const state = useRef({ nextAt: performance.now() + 4000, flickerUntil: 0 });
+  const state = useRef({
+    nextAt: performance.now() + 4000,
+    flickerUntil: 0,
+    isOff: false,
+    nextSwitchAt: 0,
+  });
+  const NOMINAL = 220;
   useFrame(() => {
     const s = state.current;
     const now = performance.now();
@@ -445,13 +463,19 @@ function SpotlightFlicker() {
       | undefined;
     if (!spot) return;
     if (now > s.nextAt) {
-      s.flickerUntil = now + 220 + Math.random() * 260;
-      s.nextAt = now + 6000 + Math.random() * 9000;
-      playSound("flicker", 0.55);
+      s.flickerUntil = now + 700 + Math.random() * 500;
+      s.nextAt = now + 7000 + Math.random() * 8000;
+      s.isOff = true;
+      s.nextSwitchAt = now + 70 + Math.random() * 100;
+      playSound("flicker", 0.65);
     }
     if (now < s.flickerUntil) {
-      // Stutter the spotlight intensity randomly for the flicker window
-      spot.intensity = 30 + Math.random() * 260;
+      if (now > s.nextSwitchAt) {
+        s.isOff = !s.isOff;
+        // Off pulses last longer than on pulses — dying light, not strobe.
+        s.nextSwitchAt = now + (s.isOff ? 70 + Math.random() * 160 : 25 + Math.random() * 60);
+      }
+      spot.intensity = s.isOff ? 0 : NOMINAL;
     } else {
       spot.intensity = THREE.MathUtils.damp(spot.intensity, 180, 8, 0.016);
     }
@@ -460,11 +484,16 @@ function SpotlightFlicker() {
 }
 
 /** Visible beam — additive cone from the spotlight source (y=8.6) down
-    to the floor (y=0). Height 8.6, center y=4.3, base radius 2.8. */
+    to the (lowered) floor at GROUND_Y. Base radius scales with height so
+    the cone spread still matches the spotlight angle. */
 function LightBeam() {
+  const SRC_Y = 8.6;
+  const height = SRC_Y - GROUND_Y;
+  const radius = 2.8 * (height / 8.6);
+  const centerY = (SRC_Y + GROUND_Y) / 2;
   return (
-    <mesh position={[0, 4.3, 0.2]}>
-      <coneGeometry args={[2.8, 8.6, 48, 1, true]} />
+    <mesh position={[0, centerY, 0.2]}>
+      <coneGeometry args={[radius, height, 48, 1, true]} />
       <meshBasicMaterial
         color="#ffd890"
         transparent
@@ -478,13 +507,14 @@ function LightBeam() {
   );
 }
 
-/** Ground — full dark plank floor at y=0. Receives shadows from the
-    spotlight so the table casts a real shadow on the ground. */
+/** Ground — full dark plank floor. Sits below y=0 so the table + CRT
+    visibly "hang" above a deeper floor, giving the scene more vertical
+    real estate without pulling the camera in. */
 function Ground() {
   const wood = useWoodTexture();
   return (
     <mesh
-      position={[0, 0, 0]}
+      position={[0, GROUND_Y, 0]}
       rotation={[-Math.PI / 2, 0, 0]}
       receiveShadow
     >
@@ -499,13 +529,15 @@ function Ground() {
   );
 }
 
-/** Warm pool disc — sits slightly above the ground to give the spotlight
-    a bright catch on the floor (real spotlight alone can look dim on
-    rough wood). Small alpha kicker. */
+/** Warm pool disc — slightly above the ground so the spotlight has a
+    readable bright catch on the rough wood. Radius scales with the
+    deeper cone. */
 function SpotlightFloor() {
+  const SRC_Y = 8.6;
+  const radius = 2.9 * ((SRC_Y - GROUND_Y) / 8.6);
   return (
-    <mesh position={[0, 0.01, 0.2]} rotation={[-Math.PI / 2, 0, 0]}>
-      <circleGeometry args={[2.9, 48]} />
+    <mesh position={[0, GROUND_Y + 0.01, 0.2]} rotation={[-Math.PI / 2, 0, 0]}>
+      <circleGeometry args={[radius, 48]} />
       <meshBasicMaterial
         color="#ffdba0"
         transparent
@@ -747,6 +779,13 @@ function genPhantomShape(shape: PhantomShape, N: number, seed: number) {
   return pts;
 }
 
+/** Sand-like hallucination cloud.
+ *
+ * The cursor passes *through* these patches. Each grain is tracked and
+ * pushed individually when the cursor's projected world-position gets
+ * close; grains slowly settle back toward their home positions. The
+ * group itself never moves — the whole effect comes from per-point
+ * buffer-attribute updates. */
 function PhantomCloud({
   position,
   tint,
@@ -762,114 +801,64 @@ function PhantomCloud({
 }) {
   const ref = useRef<THREE.Points>(null);
   const { pointer, camera } = useThree();
-  const geometry = useMemo(() => {
-    const N = 420;
+  const { geometry, homes } = useMemo(() => {
+    const N = 110;
     const pts = genPhantomShape(shape, N, seed);
+    const h = new Float32Array(pts);
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(pts, 3));
-    return g;
+    return { geometry: g, homes: h };
   }, [shape, seed]);
-  const baseScale = useRef(scale);
   const cursorWorld = useMemo(() => new THREE.Vector3(), []);
-  const repulse = useRef({ x: 0, y: 0 });
-  useFrame(({ clock }, delta) => {
+  useFrame((_, delta) => {
     if (!ref.current) return;
-    ref.current.rotation.z += delta * 0.02;
-    const breathe = 1 + Math.sin(clock.elapsedTime * 0.3 + seed) * 0.08;
-    ref.current.scale.setScalar(baseScale.current * breathe);
-
-    // Mouse as "airplane through cloud" — project cursor to the cloud's
-    // Z plane, compute XY distance, push the cloud away when close. A
-    // decay pulls it elastically back to its home position.
+    // Project cursor to world then into cloud-local space (points live in
+    // local coords; the group's scale maps them to world size).
     cursorWorld.set(pointer.x, pointer.y, 0.5).unproject(camera);
-    // Project along camera-to-point ray onto the plane z = position[2]
     const dir = cursorWorld.clone().sub(camera.position).normalize();
+    if (Math.abs(dir.z) < 1e-4) return;
     const tToPlane = (position[2] - camera.position.z) / dir.z;
     const px = camera.position.x + dir.x * tToPlane;
     const py = camera.position.y + dir.y * tToPlane;
-    const dx = position[0] - px;
-    const dy = position[1] - py;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const R = 3.5;
-    if (dist < R && dist > 0.01) {
-      const force = ((R - dist) / R) ** 2;
-      repulse.current.x += (dx / dist) * force * delta * 14;
-      repulse.current.y += (dy / dist) * force * delta * 14;
+    const lx = (px - position[0]) / scale;
+    const ly = (py - position[1]) / scale;
+
+    const attr = geometry.attributes.position as THREE.BufferAttribute;
+    const arr = attr.array as Float32Array;
+    const R = 0.55 / scale;        // local-space push radius
+    const R2 = R * R;
+    const pushK = 6.5;              // how hard the cursor shoves a grain
+    const restoreLambda = 0.55;     // damp rate — lower = slower settle
+    for (let i = 0; i < arr.length; i += 3) {
+      const dx = arr[i] - lx;
+      const dy = arr[i + 1] - ly;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < R2 && d2 > 0.0001) {
+        const d = Math.sqrt(d2);
+        const force = ((R - d) / R) * pushK * delta;
+        arr[i] += (dx / d) * force;
+        arr[i + 1] += (dy / d) * force;
+      }
+      arr[i] = THREE.MathUtils.damp(arr[i], homes[i], restoreLambda, delta);
+      arr[i + 1] = THREE.MathUtils.damp(arr[i + 1], homes[i + 1], restoreLambda, delta);
+      arr[i + 2] = THREE.MathUtils.damp(arr[i + 2], homes[i + 2], restoreLambda, delta);
     }
-    repulse.current.x *= 0.92;
-    repulse.current.y *= 0.92;
-    ref.current.position.set(
-      position[0] + repulse.current.x,
-      position[1] + repulse.current.y,
-      position[2],
-    );
+    attr.needsUpdate = true;
   });
   return (
     <points ref={ref} position={position} scale={scale}>
       <primitive object={geometry} attach="geometry" />
       <pointsMaterial
-        size={2.2}
+        size={2.0}
         color={tint}
         transparent
-        opacity={0.4}
+        opacity={0.42}
         sizeAttenuation={false}
         depthWrite={false}
         blending={THREE.AdditiveBlending}
         toneMapped={false}
       />
     </points>
-  );
-}
-
-/** Afterimage blob — a dim glow that fades in and out at random points
-    in the periphery, like what your retina invents after a flash. */
-function AfterimageBlob() {
-  const ref = useRef<THREE.Mesh>(null);
-  const state = useRef({
-    nextAt: performance.now() + 3000,
-    active: false,
-    pos: new THREE.Vector3(),
-    life: 0,
-    maxLife: 2.5,
-  });
-  useFrame((_, delta) => {
-    const s = state.current;
-    const now = performance.now();
-    if (!s.active && now > s.nextAt) {
-      s.active = true;
-      s.life = 0;
-      const r = 4 + Math.random() * 3;
-      const a = Math.random() * Math.PI * 2;
-      // Clamp Y so the blob stays above the ground plane.
-      const yRaw = Math.sin(a) * r * 0.6 + 3;
-      s.pos.set(Math.cos(a) * r, Math.max(0.5, yRaw), -1 - Math.random() * 2);
-    }
-    if (s.active && ref.current) {
-      s.life += delta;
-      const t = s.life / s.maxLife;
-      const fade = t < 0.3 ? t / 0.3 : t > 0.6 ? 1 - (t - 0.6) / 0.4 : 1;
-      ref.current.position.copy(s.pos);
-      (ref.current.material as THREE.MeshBasicMaterial).opacity = fade * 0.25;
-      if (t >= 1) {
-        s.active = false;
-        s.nextAt = now + 3500 + Math.random() * 4000;
-      }
-    } else if (ref.current) {
-      (ref.current.material as THREE.MeshBasicMaterial).opacity = 0;
-    }
-  });
-  return (
-    <mesh ref={ref}>
-      <sphereGeometry args={[1.2, 16, 16]} />
-      <meshBasicMaterial
-        color="#8a70c0"
-        transparent
-        opacity={0}
-        blending={THREE.AdditiveBlending}
-        depthWrite={false}
-        toneMapped={false}
-      />
-    </mesh>
   );
 }
 
@@ -1150,19 +1139,29 @@ export function ContactScene() {
             actually visible against the dark backdrop. */}
         <RetinalNoise />
         <Floaters />
-        <AfterimageBlob />
         {/* Phantom shapes — weird half-seen things the eye invents in
             the dark. Dim, low-saturation tints, irregular geometries
-            (figures, eyes, hands, scribbles, spirals, crescents).
-            All above ground. */}
-        <PhantomCloud position={[-6, 3.0, 2]} tint="#4a5c80" seed={11} scale={1.4} shape="figure" />
-        <PhantomCloud position={[5.5, 3.8, 1]} tint="#5a4860" seed={29} scale={1.0} shape="eye" />
-        <PhantomCloud position={[-4.5, 5.0, 3]} tint="#4a6a50" seed={47} scale={1.2} shape="hand" />
-        <PhantomCloud position={[6.5, 5.2, -1]} tint="#60485a" seed={73} scale={1.6} shape="scribble" />
-        <PhantomCloud position={[-7.5, 2.2, 0]} tint="#5a4a38" seed={101} scale={1.3} shape="spiral" />
-        <PhantomCloud position={[4.2, 1.6, 2]} tint="#3a5060" seed={127} scale={1.1} shape="crescent" />
-        <PhantomCloud position={[0, 7.2, -2]} tint="#484058" seed={157} scale={1.5} shape="figure" />
-        <PhantomCloud position={[-8, 6.0, -1]} tint="#3e4e60" seed={191} scale={1.3} shape="eye" />
+            (figures, eyes, hands, scribbles, spirals, crescents). Each
+            cloud is SMALL and INDEPENDENTLY scatterable — the cursor
+            passes through and shoves individual grains. More patches
+            at smaller scales so they read as many half-glimpsed things
+            rather than a few big blobs. All above ground. */}
+        <PhantomCloud position={[-5.8, 2.8, 1.8]} tint="#4a5c80" seed={11}  scale={0.9} shape="figure"   />
+        <PhantomCloud position={[ 5.4, 3.2, 1.2]} tint="#5a4860" seed={29}  scale={0.7} shape="eye"      />
+        <PhantomCloud position={[-4.4, 4.9, 2.6]} tint="#4a6a50" seed={47}  scale={0.8} shape="hand"     />
+        <PhantomCloud position={[ 6.3, 5.0,-0.5]} tint="#60485a" seed={73}  scale={1.0} shape="scribble" />
+        <PhantomCloud position={[-7.3, 2.1, 0.4]} tint="#5a4a38" seed={101} scale={0.9} shape="spiral"   />
+        <PhantomCloud position={[ 4.1, 1.5, 2.0]} tint="#3a5060" seed={127} scale={0.7} shape="crescent" />
+        <PhantomCloud position={[ 0.2, 6.4,-2.2]} tint="#484058" seed={157} scale={0.9} shape="figure"   />
+        <PhantomCloud position={[-7.7, 5.8,-0.9]} tint="#3e4e60" seed={191} scale={0.8} shape="eye"      />
+        <PhantomCloud position={[ 7.4, 2.7, 2.4]} tint="#4a4062" seed={211} scale={0.6} shape="scribble" />
+        <PhantomCloud position={[-2.8, 7.1, 2.0]} tint="#405868" seed={233} scale={0.7} shape="crescent" />
+        <PhantomCloud position={[ 3.4, 6.0, 3.0]} tint="#584860" seed={263} scale={0.6} shape="spiral"   />
+        <PhantomCloud position={[-5.5, 1.1, 3.3]} tint="#554d3a" seed={307} scale={0.55} shape="hand"    />
+        <PhantomCloud position={[ 5.9, 0.9, 3.6]} tint="#3d4a58" seed={331} scale={0.55} shape="figure"  />
+        <PhantomCloud position={[-2.0, 4.4, 4.0]} tint="#4e3c4a" seed={373} scale={0.5}  shape="eye"     />
+        <PhantomCloud position={[ 2.5, 3.3, 4.1]} tint="#3a4852" seed={409} scale={0.5}  shape="scribble"/>
+        <PhantomCloud position={[-0.4, 1.4,-3.2]} tint="#3c4660" seed={449} scale={0.8}  shape="spiral"  />
       </Suspense>
     </Canvas>
   );

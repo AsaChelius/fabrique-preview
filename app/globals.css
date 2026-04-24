@@ -743,6 +743,29 @@ body {
   overflow: hidden;
   pointer-events: auto;
 }
+/* CRT glass reflection — two diagonal highlight streaks (fat + thin)
+   sit above the Win98 UI to sell "this is a convex glass tube", not a
+   flat monitor. Pure decorative layer; never intercepts pointer events. */
+.crt-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    118deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.13) 30%,
+    rgba(255, 255, 255, 0.22) 36%,
+    rgba(255, 255, 255, 0.09) 44%,
+    transparent 52%,
+    transparent 60%,
+    rgba(255, 255, 255, 0.06) 63%,
+    rgba(255, 255, 255, 0.11) 66%,
+    rgba(255, 255, 255, 0.04) 69%,
+    transparent 74%
+  );
+  z-index: 500;
+}
 
 /* ---- Win98 desktop (boot state) ---- */
 .win98-desktop {
@@ -931,8 +954,13 @@ body {
 }
 
 /* ---- Windows 98 form ---- */
+/* Width caps at 400 so the window fits inside the 420px .crt-screen
+   container (was 560 — the right edge of the form including the X
+   close button was clipped offscreen, which is why "contents looked
+   extremely small" — you only saw the left portion). */
 .win98-window {
-  width: 560px;
+  width: 400px;
+  margin: 4px auto 0;
   background: #c0c0c0;
   color: #000000;
   border: 2px solid #ffffff;
@@ -948,14 +976,14 @@ body {
   justify-content: space-between;
   background: linear-gradient(90deg, #0a246a 0%, #a6caf0 100%);
   color: #ffffff;
-  padding: 3px 6px;
+  padding: 4px 8px;
   font-weight: 700;
-  font-size: 13px;
+  font-size: 15px;
   letter-spacing: 0.02em;
 }
 .win98-x {
-  width: 22px;
-  height: 20px;
+  width: 24px;
+  height: 22px;
   background: #c0c0c0;
   color: #000000;
   border: 2px solid #ffffff;
@@ -963,7 +991,7 @@ body {
   border-bottom-color: #000000;
   box-shadow: inset 1px 1px 0 #dfdfdf, inset -1px -1px 0 #808080;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   line-height: 1;
@@ -975,22 +1003,23 @@ body {
   padding: 1px 0 0 1px;
 }
 .win98-body {
-  padding: 14px 16px 10px;
+  padding: 12px 14px 8px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 .win98-body label {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  gap: 10px;
-  font-size: 13px;
+  gap: 8px;
+  font-size: 15px;
 }
 .win98-body label > span {
-  width: 90px;
+  width: 72px;
   padding-top: 3px;
   text-align: right;
+  flex-shrink: 0;
 }
 .win98-msg-label {
   align-items: flex-start !important;
@@ -999,6 +1028,7 @@ body {
 .win98-body input[type="email"],
 .win98-body textarea {
   flex: 1;
+  min-width: 0;
   background: #ffffff;
   color: #000000;
   border: 2px solid #808080;
@@ -1006,38 +1036,38 @@ body {
   border-bottom-color: #ffffff;
   box-shadow: inset 1px 1px 0 #000000, inset -1px -1px 0 #dfdfdf;
   font-family: inherit;
-  font-size: 13px;
-  padding: 2px 4px;
+  font-size: 15px;
+  padding: 3px 5px;
   outline: none;
 }
 .win98-body textarea {
   resize: none;
-  min-height: 110px;
+  min-height: 72px;
   font-family: inherit;
 }
 .win98-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 4px;
 }
 .win98-btn {
-  min-width: 90px;
+  min-width: 78px;
   background: #c0c0c0;
   color: #000000;
   border: 2px solid #ffffff;
   border-right-color: #000000;
   border-bottom-color: #000000;
   box-shadow: inset 1px 1px 0 #dfdfdf, inset -1px -1px 0 #808080;
-  padding: 4px 14px;
+  padding: 4px 12px;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 15px;
   cursor: pointer;
 }
 .win98-btn:active:not(:disabled) {
   border-color: #000000 #ffffff #ffffff #000000;
   box-shadow: inset -1px -1px 0 #dfdfdf, inset 1px 1px 0 #808080;
-  padding: 5px 14px 3px 15px;
+  padding: 5px 12px 3px 13px;
 }
 .win98-btn:disabled {
   color: #808080;
@@ -1045,9 +1075,9 @@ body {
   cursor: not-allowed;
 }
 .win98-msg {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   padding: 0 2px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .win98-msg.ok { color: #006000; }
 .win98-msg.err { color: #800000; }
@@ -1056,7 +1086,7 @@ body {
   background: #c0c0c0;
   box-shadow: inset 1px 1px 0 #ffffff;
   padding: 3px 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: #202020;
 }
 
