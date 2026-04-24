@@ -186,48 +186,17 @@ function NebulaImage({
   /** Mirror horizontally so the same nebula reads differently on reuse. */
   flipX?: boolean;
 }) {
-  // Manual TextureLoader — on success, pipe the image through a canvas and
-  // multiply it by a radial gradient (white center, black edges). That bakes
-  // a circular falloff directly into the texture's RGB, so under additive
-  // blending the corners of the plane contribute zero and the nebula edges
-  // disappear into the void instead of showing as a rectangle. Avoids
-  // custom shader entirely.
+  // Manual TextureLoader — render nothing on 404 instead of throwing.
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
   useEffect(() => {
-    if (typeof document === "undefined") return;
     const loader = new THREE.TextureLoader();
     let cancelled = false;
     loader.load(
       url,
       (tex) => {
         if (cancelled) return;
-        const img = tex.image as HTMLImageElement;
-        const canvas = document.createElement("canvas");
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          setTexture(null);
-          return;
-        }
-        ctx.drawImage(img, 0, 0);
-        // Multiply blend with a radial gradient: full brightness through
-        // the inner 55%, smooth fade to pure black at the edge. After
-        // this, the four PNG corners are hard black.
-        const cx = img.width / 2;
-        const cy = img.height / 2;
-        const rmax = Math.min(img.width, img.height) / 2;
-        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rmax);
-        grad.addColorStop(0, "rgba(255,255,255,1)");
-        grad.addColorStop(0.55, "rgba(255,255,255,1)");
-        grad.addColorStop(1, "rgba(0,0,0,1)");
-        ctx.globalCompositeOperation = "multiply";
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, img.width, img.height);
-        const masked = new THREE.CanvasTexture(canvas);
-        masked.colorSpace = THREE.SRGBColorSpace;
-        masked.needsUpdate = true;
-        setTexture(masked);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        setTexture(tex);
       },
       undefined,
       () => {
@@ -252,10 +221,12 @@ function NebulaImage({
   const [w, h] = typeof scale === "number" ? [scale, scale] : scale;
   return (
     <mesh ref={ref} position={position} scale={[flipX ? -1 : 1, 1, 1]}>
-      {/* Plane is fine — the texture itself has been radially masked on
-          load (see effect above). Its four corners are baked pure black,
-          the outer ring fades smoothly to black, so under additive blend
-          nothing outside the nebula body contributes any light. */}
+      {/* The source PNG has a real alpha channel (space = transparent,
+          nebula = opaque) so square edges disappear on their own. Additive
+          blend keeps the nebula luminous — stars behind it stay visible
+          and the color layers feel like gas rather than paint. `color`
+          multiplies with texture RGB to tint each instance. DoubleSide so
+          flipX (scale.x = -1) doesn't get back-face culled. */}
       <planeGeometry args={[w, h]} />
       <meshBasicMaterial
         map={texture}
@@ -1666,7 +1637,7 @@ export function CoalScene({
             (even reused) beats any procedural gradient. */}
         <SceneFadeIn delay={400} duration={1400}>
           <NebulaImage
-            url="/nebulas/cats-eye.png"
+            url="/nebulas/nebula_transparent.png"
             position={[-12, 4, -24]}
             scale={24}
             opacity={0.92}
@@ -1675,7 +1646,7 @@ export function CoalScene({
             initialRotation={0.4}
           />
           <NebulaImage
-            url="/nebulas/cats-eye.png"
+            url="/nebulas/nebula_transparent.png"
             position={[16, -3, -30]}
             scale={30}
             opacity={0.68}
@@ -1685,7 +1656,7 @@ export function CoalScene({
             flipX
           />
           <NebulaImage
-            url="/nebulas/cats-eye.png"
+            url="/nebulas/nebula_transparent.png"
             position={[-18, -7, -22]}
             scale={18}
             opacity={0.55}
@@ -1694,7 +1665,7 @@ export function CoalScene({
             initialRotation={5.0}
           />
           <NebulaImage
-            url="/nebulas/cats-eye.png"
+            url="/nebulas/nebula_transparent.png"
             position={[18, 9, -27]}
             scale={16}
             opacity={0.6}
@@ -1704,7 +1675,7 @@ export function CoalScene({
             flipX
           />
           <NebulaImage
-            url="/nebulas/cats-eye.png"
+            url="/nebulas/nebula_transparent.png"
             position={[-2, -4, -36]}
             scale={34}
             opacity={0.42}
