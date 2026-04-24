@@ -22,7 +22,12 @@ export type SoundName =
   | "orb-ping"    // octa: high two-tone crystal ping
   | "orb-chime"   // icosa: three-tone bright bell stack
   | "orb-wobble"  // torus: vibrato sine wobble
-  | "orb-thump";  // dodec: pitched-down triangle thud
+  | "orb-thump"   // dodec: pitched-down triangle thud
+  // Phone UX voices (contact route).
+  | "phone-key"   // DTMF-ish two-tone key press
+  | "phone-dial"  // dial-tone hum
+  | "phone-hang"  // hangup click
+  | "alien";      // alien speech burst — filtered noise + warble
 
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
@@ -441,6 +446,114 @@ export function playSound(name: SoundName, volume = 1) {
       ns.connect(ng).connect(masterGain);
       ns.start(now);
       ns.stop(now + 0.03);
+      break;
+    }
+    case "phone-key": {
+      // DTMF-like tone pair — two sines summed with a quick envelope.
+      const dur = 0.14;
+      const low = 770 + Math.random() * 60;
+      const high = 1336 + Math.random() * 60;
+      const o1 = c.createOscillator();
+      const o2 = c.createOscillator();
+      o1.type = "sine";
+      o2.type = "sine";
+      o1.frequency.value = low;
+      o2.frequency.value = high;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(v * 0.5, now + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      o1.connect(g);
+      o2.connect(g);
+      g.connect(masterGain);
+      o1.start(now); o2.start(now);
+      o1.stop(now + dur + 0.02); o2.stop(now + dur + 0.02);
+      break;
+    }
+    case "phone-dial": {
+      // Continuous dial tone — 350 Hz + 440 Hz, 1-second loop.
+      const dur = 1.0;
+      const o1 = c.createOscillator();
+      const o2 = c.createOscillator();
+      o1.type = "sine"; o2.type = "sine";
+      o1.frequency.value = 350;
+      o2.frequency.value = 440;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(v * 0.25, now + 0.05);
+      g.gain.linearRampToValueAtTime(0, now + dur);
+      o1.connect(g); o2.connect(g);
+      g.connect(masterGain);
+      o1.start(now); o2.start(now);
+      o1.stop(now + dur); o2.stop(now + dur);
+      break;
+    }
+    case "phone-hang": {
+      // Short click.
+      const dur = 0.06;
+      const nb = c.createBuffer(1, c.sampleRate * dur, c.sampleRate);
+      const nd = nb.getChannelData(0);
+      for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nd.length);
+      const ns = c.createBufferSource();
+      ns.buffer = nb;
+      const bp = c.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 2200;
+      bp.Q.value = 4;
+      const g = c.createGain();
+      g.gain.value = v * 0.6;
+      ns.connect(bp).connect(g).connect(masterGain);
+      ns.start(now);
+      ns.stop(now + dur);
+      break;
+    }
+    case "alien": {
+      // Alien speech burst — filtered white noise warbling through a ring-
+      // modulator-ish detuned sine, plus a wobble LFO on filter cutoff.
+      // Sounds garbled-organic.
+      const dur = 4.0;
+      const nb = c.createBuffer(1, c.sampleRate * dur, c.sampleRate);
+      const nd = nb.getChannelData(0);
+      for (let i = 0; i < nd.length; i++) {
+        // Bursty envelope — silence between syllables, so it sounds
+        // like speech rather than a continuous buzz.
+        const t = i / c.sampleRate;
+        const syllable = Math.max(0, Math.sin(t * 7 + Math.sin(t * 2.3) * 2));
+        nd[i] = (Math.random() * 2 - 1) * syllable;
+      }
+      const ns = c.createBufferSource();
+      ns.buffer = nb;
+      const bp = c.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 800;
+      bp.Q.value = 8;
+      // LFO sweeping the bandpass frequency — that's what makes it warble
+      // and sound like alien vowel-forming.
+      const lfo = c.createOscillator();
+      lfo.type = "sine";
+      lfo.frequency.value = 4.5;
+      const lfoGain = c.createGain();
+      lfoGain.gain.value = 600;
+      lfo.connect(lfoGain).connect(bp.frequency);
+      // Ring-mod-ish detune partner
+      const ring = c.createOscillator();
+      ring.type = "sine";
+      ring.frequency.value = 180;
+      const ringGain = c.createGain();
+      ringGain.gain.value = 0.4;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(v * 0.55, now + 0.2);
+      g.gain.setValueAtTime(v * 0.55, now + dur - 0.3);
+      g.gain.linearRampToValueAtTime(0, now + dur);
+      ns.connect(bp).connect(g).connect(masterGain);
+      ring.connect(ringGain).connect(g);
+      ns.start(now);
+      lfo.start(now);
+      ring.start(now);
+      ns.stop(now + dur);
+      lfo.stop(now + dur);
+      ring.stop(now + dur);
       break;
     }
   }
