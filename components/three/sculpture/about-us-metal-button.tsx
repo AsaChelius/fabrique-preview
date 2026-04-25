@@ -4,8 +4,12 @@ import { useFrame } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
 import { useLayoutEffect, useMemo, useRef, useState, useEffect } from "react";
 import * as THREE from "three";
-import { navigateWithFade } from "./route-transition";
-import { getMode, onModeChange, type ShowcaseMode } from "./showcase-bus";
+import {
+  getMode,
+  onModeChange,
+  setAboutMode,
+  type ShowcaseMode,
+} from "./showcase-bus";
 import { SHOWCASE_LAYOUT } from "./showcase-targets";
 import { setCursorHover } from "./cursor-bus";
 import { TUNING } from "./tuning";
@@ -275,7 +279,8 @@ export function AboutUsMetalButton() {
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     unlockAudio();
-    navigateWithFade("/about");
+    playSample(SOUND_ASSETS.routeSwell, 0.11, 0, 1.1, { reverbSend: 0.08 });
+    setAboutMode();
   };
 
   return (

@@ -35,6 +35,8 @@ import {
   computeShowcaseFrameHomes,
   computeExpandedLetterHomes,
   computeExpandedFrameHomes,
+  computeAboutLetterHomes,
+  computeAboutFrameHomes,
 } from "./showcase-targets";
 
 type Clouds = {
@@ -164,6 +166,26 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
           edgeFlow: frameResult.edgeFlow,
           hoveredCard: null,
           dominantCard: expandedCard,
+        };
+      } else if (mode === "about") {
+        const letterResult = computeAboutLetterHomes(letterCount);
+        home.set(letterResult.positions, letterStart3);
+        letterShowcase.current = {
+          active: false,
+          cardIndex: letterResult.cardIndex,
+          edgeFlow: letterResult.edgeFlow,
+          hoveredCard: null,
+          dominantCard: null,
+        };
+
+        const frameResult = computeAboutFrameHomes(frameCount);
+        home.set(frameResult.positions, frameStart3);
+        frameShowcase.current = {
+          active: false,
+          cardIndex: frameResult.cardIndex,
+          edgeFlow: frameResult.edgeFlow,
+          hoveredCard: null,
+          dominantCard: null,
         };
       } else {
         if (originalLetterHomes.current) {

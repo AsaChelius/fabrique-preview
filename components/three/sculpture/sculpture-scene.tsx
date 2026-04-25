@@ -14,7 +14,7 @@
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
-import { Environment, MeshReflectorMaterial } from "@react-three/drei";
+import { Environment, MeshReflectorMaterial, Text } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { PerspectiveCamera as PerspectiveCameraImpl } from "three";
@@ -86,6 +86,7 @@ export function SculptureScene() {
         <ProjectsButton />
         <CardHitboxes />
         <AboutUsMetalButton />
+        <AboutPanelCopy />
 
         {/* Manual mirror. When palette.floorReflective is false we
             don't use drei's MeshReflectorMaterial (which can't produce
@@ -105,6 +106,95 @@ export function SculptureScene() {
         <ReflectiveFloor palette={palette} />
       </Suspense>
     </Canvas>
+  );
+}
+
+function AboutPanelCopy() {
+  const [mode, setMode] = useState<ShowcaseMode>(() => getMode());
+  const opacityRef = useRef(0);
+  const material = useMemo(
+    () =>
+      new THREE.MeshPhysicalMaterial({
+        color: "#25272c",
+        metalness: 1,
+        roughness: 0.28,
+        transparent: true,
+        opacity: 0,
+        envMapIntensity: TUNING.envMapIntensity,
+      }),
+    [],
+  );
+
+  useEffect(() => onModeChange((m) => setMode(m)), []);
+  useFrame(() => {
+    const target = mode === "about" ? 1 : 0;
+    opacityRef.current += (target - opacityRef.current) * 0.08;
+    material.opacity = opacityRef.current;
+  });
+
+  if (mode !== "about" && opacityRef.current < 0.01) return null;
+
+  return (
+    <group position={[0, 0.44, 0.92]}>
+      <Text
+        anchorX="center"
+        anchorY="middle"
+        fontSize={0.36}
+        letterSpacing={0.02}
+        material={material}
+        position={[0, 1.78, 0]}
+      >
+        FABRIQUE
+      </Text>
+      <Text
+        anchorX="center"
+        anchorY="middle"
+        fontSize={0.14}
+        letterSpacing={0.04}
+        material={material}
+        maxWidth={3.8}
+        position={[0, 1.43, 0]}
+        textAlign="center"
+      >
+        TWO PILOTS. ONE WORKSHOP. SITES THAT MOVE.
+      </Text>
+      <Text
+        anchorX="center"
+        anchorY="top"
+        fontSize={0.105}
+        lineHeight={1.32}
+        material={material}
+        maxWidth={3.05}
+        position={[0, 1.12, 0]}
+        textAlign="center"
+      >
+        {`We're Edouard and Asa, a two-person studio building physics-driven interfaces, interactive 3D, and apps that feel alive.
+
+Edouard drives the frontend: R3F, shaders, and motion. Asa runs the backend: APIs, data, and systems.
+
+This ship is FABRIQUE. That's us.`}
+      </Text>
+      <Text
+        anchorX="center"
+        anchorY="middle"
+        fontSize={0.13}
+        letterSpacing={0.05}
+        material={material}
+        position={[-1.88, -1.42, 0]}
+      >
+        EDOUARD
+      </Text>
+      <Text
+        anchorX="center"
+        anchorY="middle"
+        fontSize={0.13}
+        letterSpacing={0.05}
+        material={material}
+        position={[1.88, -1.42, 0]}
+      >
+        ASA
+      </Text>
+    </group>
   );
 }
 
@@ -166,7 +256,7 @@ function CardHitboxes() {
     });
   }, []);
 
-  if (mode === "off") return null;
+  if (mode === "off" || mode === "about") return null;
 
   // Expanded mode: a single big hit-plane covering the merged box.
   // It keeps hover/cursor behavior on the project surface, but clicks
@@ -370,13 +460,20 @@ function AnimatedSceneColors({ palette }: { palette: SculpturePalette }) {
  */
 function ResponsiveCamera() {
   const { camera, size } = useThree();
+  const [mode, setMode] = useState<ShowcaseMode>(() => getMode());
+
+  useEffect(() => onModeChange((m) => setMode(m)), []);
+
   useFrame(() => {
     const cam = camera as PerspectiveCameraImpl;
     const viewportAspect = size.width / Math.max(size.height, 1);
     const camZ = TUNING.cameraZ;
-    const halfW = TUNING.wordHalfWidth + TUNING.fitMargin;
+    const aboutActive = mode === "about";
+    const halfW = aboutActive ? 4.25 : TUNING.wordHalfWidth + TUNING.fitMargin;
     const canvasAspect = TUNING.sampleWidth / TUNING.sampleHeight;
-    const halfH = TUNING.wordHalfWidth / canvasAspect + TUNING.fitMargin;
+    const halfH = aboutActive
+      ? 4.25
+      : TUNING.wordHalfWidth / canvasAspect + TUNING.fitMargin;
 
     // vfov needed so horizontal extent fits:
     //   halfW = camZ * tan(halfHFov) = camZ * tan(halfVFov) * viewportAspect

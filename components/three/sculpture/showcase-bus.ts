@@ -3,11 +3,12 @@
 /**
  * Showcase mode — module-level state + subscribe.
  *
- * Three modes:
+ * Four modes:
  *   "off"      — FABRIQUE wordmark, no cards.
  *   "showcase" — 5 cards in a row, each its own chameleon hue.
  *   "expanded" — one big merged box, adopting the clicked card's hue.
  *                All shards (outline + interior) collapse into it.
+ *   "about"    — one large in-scene metal plaque using the shared shards.
  *
  * Also tracks which card the cursor is currently over so the hit-planes
  * in sculpture-scene.tsx can drive per-card glow without needing React
@@ -18,7 +19,7 @@
  * with a single function call.
  */
 
-export type ShowcaseMode = "off" | "showcase" | "expanded";
+export type ShowcaseMode = "off" | "showcase" | "expanded" | "about";
 
 type ModeListener = (mode: ShowcaseMode, expandedCard: number | null) => void;
 type HoverListener = (hoveredCard: number | null) => void;
@@ -85,6 +86,13 @@ export function expandCard(cardIdx: number): void {
   notifyMode();
 }
 
+export function setAboutMode(): void {
+  if (_mode === "about") return;
+  _mode = "about";
+  _expandedCard = null;
+  notifyMode();
+}
+
 export function collapseExpanded(): void {
   if (_mode !== "expanded") return;
   _mode = "showcase";
@@ -122,6 +130,8 @@ export function toggleShowcase(): void {
   //   off       → showcase  (open the projects view)
   if (_mode === "expanded") {
     collapseExpanded();
+  } else if (_mode === "about") {
+    setMode("showcase");
   } else {
     setMode(_mode === "showcase" ? "off" : "showcase");
   }
@@ -162,8 +172,10 @@ if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
     __toggleShowcase?: () => void;
     __expandCard?: (i: number) => void;
     __collapseExpanded?: () => void;
+    __aboutMode?: () => void;
   };
   w.__toggleShowcase = toggleShowcase;
   w.__expandCard = expandCard;
   w.__collapseExpanded = collapseExpanded;
+  w.__aboutMode = setAboutMode;
 }

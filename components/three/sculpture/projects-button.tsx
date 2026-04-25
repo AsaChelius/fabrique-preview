@@ -243,6 +243,9 @@ const BUTTON = {
    *  instead of poking into it. Lerp happens automatically via the
    *  existing morph spring — the arrow just eases down into place. */
   expandedArrowDrop: -0.28,
+  /** About mode uses a taller square plaque, so the back arrow sits
+   *  below the panel instead of inside the copy/figure composition. */
+  aboutArrowDrop: -0.18,
 
   // ---- Back-arrow (shown when the showcase is open) ----
   /** Per-frame lerp toward the active layout (text or arrow). Low = slow
@@ -446,11 +449,15 @@ export function ProjectsButton() {
     const lerp = BUTTON.morphLerp;
     const sepMag = hoverAmp.current * BUTTON.hoverSeparationAmp;
     const sepDirs = separationDirs;
-    // Drop the arrow slightly while inside a project (expanded mode).
-    // Only applies when the arrow layout is active; the text layout is
-    // never shown in expanded mode.
+    // Drop the arrow while inside a project/about panel. Only applies
+    // when the arrow layout is active; the text layout is never shown
+    // in these modes.
     const arrowYOffset =
-      showingArrow && mode === "expanded" ? BUTTON.expandedArrowDrop : 0;
+      showingArrow && mode === "expanded"
+        ? BUTTON.expandedArrowDrop
+        : showingArrow && mode === "about"
+          ? BUTTON.aboutArrowDrop
+          : 0;
 
     const m = new THREE.Matrix4();
     const pos = new THREE.Vector3();
@@ -566,7 +573,11 @@ export function ProjectsButton() {
   const hitboxY = showcase
     ? TUNING.buttonCenterY +
       BUTTON.arrowBaseDrop +
-      (mode === "expanded" ? BUTTON.expandedArrowDrop : 0)
+      (mode === "expanded"
+        ? BUTTON.expandedArrowDrop
+        : mode === "about"
+          ? BUTTON.aboutArrowDrop
+          : 0)
     : TUNING.buttonCenterY;
 
   const onOver = (e: ThreeEvent<PointerEvent>) => {
