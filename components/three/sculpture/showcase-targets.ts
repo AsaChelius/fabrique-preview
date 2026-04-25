@@ -55,7 +55,7 @@ const ABOUT_PANEL = {
   size: 5.65,
   centerY: 0.48,
   centerZ: 0,
-  depth: 2.35,
+  depth: 2.55,
   borderJitter: 0.055,
   sampleSize: 1800,
   alphaThreshold: 140,
@@ -283,9 +283,9 @@ export function computeExpandedFrameHomes(count: number): ShowcaseHomes {
 
 /**
  * About mode — the whole FABRIQUE sculpture becomes a single suspended
- * metal plaque. Letter shards resolve into two human silhouettes; frame
- * shards become a deep lower plinth/case. Keeping the upper center clear
- * avoids the old falling-rain read behind the copy.
+ * metal box. Letter shards resolve into two human silhouettes; frame
+ * shards resolve onto the 12 clean edges of the box only. No face fill:
+ * filling the panel looked like rain behind the copy.
  */
 export function computeAboutLetterHomes(count: number): ShowcaseHomes {
   if (cachedAboutLetterHomes && cachedAboutLetterCount === count) {
@@ -356,8 +356,14 @@ export function computeAboutFrameHomes(count: number): ShowcaseHomes {
   const half = ABOUT_PANEL.size / 2;
   const hd = ABOUT_PANEL.depth / 2;
 
+  const edgeWeights = [
+    0.018, 0.17, 0.045, 0.045,
+    0.018, 0.17, 0.045, 0.045,
+    0.15, 0.028, 0.15, 0.028,
+  ] as const;
+
   for (let i = 0; i < count; i++) {
-    const roll = rand();
+    const edge = pickWeighted(edgeWeights, rand());
     const t = rand() * 2 - 1;
     const j1 = (rand() - 0.5) * ABOUT_PANEL.borderJitter;
     const j2 = (rand() - 0.5) * ABOUT_PANEL.borderJitter;
@@ -365,22 +371,27 @@ export function computeAboutFrameHomes(count: number): ShowcaseHomes {
     let y = 0;
     let z = 0;
 
-    if (roll < 0.66) {
-      // Deep bottom shelf: this gives the panel weight without filling
-      // the whole face with vertical strips.
-      x = t * half * 0.92;
-      y = -half * 0.86 + j1 * 2.2;
-      z = (rand() * 2 - 1) * hd;
-    } else if (roll < 0.84) {
-      // Front/back lower rails.
-      x = t * half;
-      y = -half + j1;
-      z = roll < 0.75 ? hd : -hd;
+    if (edge < 8) {
+      z = edge < 4 ? hd : -hd;
+      const side = edge % 4;
+      if (side === 0) {
+        x = t * half;
+        y = half + j1;
+      } else if (side === 1) {
+        x = t * half;
+        y = -half + j1;
+      } else if (side === 2) {
+        x = -half + j1;
+        y = t * half;
+      } else {
+        x = half + j1;
+        y = t * half;
+      }
     } else {
-      // Short side rails only in the lower half.
-      x = roll < 0.92 ? -half + j1 : half + j1;
-      y = -half + (rand() * 0.48 + 0.05) * half + j2;
-      z = (rand() * 2 - 1) * hd;
+      const corner = edge - 8;
+      x = corner < 2 ? -half + j1 : half + j1;
+      y = corner === 0 || corner === 2 ? -half + j2 : half + j2;
+      z = t * hd;
     }
 
     positions[i * 3] = x;
@@ -450,6 +461,18 @@ function sampledPixels(
     if (data[i] >= ABOUT_PANEL.alphaThreshold) inside.push((i - 3) >> 2);
   }
   return inside.length > 0 ? inside : [0];
+}
+
+function pickWeighted(weights: readonly number[], roll: number): number {
+  let total = 0;
+  for (const w of weights) total += w;
+  let acc = 0;
+  const target = roll * total;
+  for (let i = 0; i < weights.length; i++) {
+    acc += weights[i];
+    if (target <= acc) return i;
+  }
+  return weights.length - 1;
 }
 
 function mulberry32(seed: number): () => number {

@@ -14,7 +14,12 @@
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
-import { Environment, MeshReflectorMaterial, Text } from "@react-three/drei";
+import {
+  Center,
+  Environment,
+  MeshReflectorMaterial,
+  Text3D,
+} from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { PerspectiveCamera as PerspectiveCameraImpl } from "three";
@@ -43,6 +48,7 @@ import {
   onModeChange,
   pushCardImpulse,
   setHoveredCard,
+  setMode as setShowcaseMode,
   type ShowcaseMode,
 } from "./showcase-bus";
 
@@ -115,12 +121,23 @@ function AboutPanelCopy() {
   const material = useMemo(
     () =>
       new THREE.MeshPhysicalMaterial({
-        color: "#25272c",
+        color: "#30333a",
         metalness: 1,
-        roughness: 0.28,
+        roughness: 0.22,
         transparent: true,
         opacity: 0,
-        envMapIntensity: TUNING.envMapIntensity,
+        emissive: new THREE.Color("#050607"),
+        emissiveIntensity: 0.06,
+        envMapIntensity: TUNING.envMapIntensity * 1.25,
+      }),
+    [],
+  );
+  const shadowMaterial = useMemo(
+    () =>
+      new THREE.MeshBasicMaterial({
+        color: "#a9aca6",
+        transparent: true,
+        opacity: 0,
       }),
     [],
   );
@@ -128,73 +145,101 @@ function AboutPanelCopy() {
   useEffect(() => onModeChange((m) => setMode(m)), []);
   useFrame(() => {
     const target = mode === "about" ? 1 : 0;
-    opacityRef.current += (target - opacityRef.current) * 0.08;
+    opacityRef.current += (target - opacityRef.current) * 0.045;
     material.opacity = opacityRef.current;
+    shadowMaterial.opacity = opacityRef.current * 0.32;
   });
 
   if (mode !== "about" && opacityRef.current < 0.01) return null;
 
   return (
-    <group position={[0, 0.44, 0.92]}>
-      <Text
-        anchorX="center"
-        anchorY="middle"
-        fontSize={0.36}
-        letterSpacing={0.02}
+    <group position={[0, 0.44, 1.05]} rotation={[-0.025, 0, 0]}>
+      <MetalTextLine
+        material={shadowMaterial}
+        position={[0.035, 1.745, -0.035]}
+        size={0.36}
+        text="FABRIQUE"
+      />
+      <MetalTextLine
         material={material}
         position={[0, 1.78, 0]}
-      >
-        FABRIQUE
-      </Text>
-      <Text
-        anchorX="center"
-        anchorY="middle"
-        fontSize={0.14}
-        letterSpacing={0.04}
+        size={0.36}
+        text="FABRIQUE"
+      />
+      <MetalTextLine
         material={material}
-        maxWidth={3.8}
-        position={[0, 1.43, 0]}
-        textAlign="center"
-      >
-        TWO PILOTS. ONE WORKSHOP. SITES THAT MOVE.
-      </Text>
-      <Text
-        anchorX="center"
-        anchorY="top"
-        fontSize={0.105}
-        lineHeight={1.32}
+        position={[0, 1.37, 0.02]}
+        size={0.105}
+        text="TWO PILOTS  /  ONE WORKSHOP  /  SITES THAT MOVE"
+      />
+      <MetalTextLine
         material={material}
-        maxWidth={3.05}
-        position={[0, 1.12, 0]}
-        textAlign="center"
-      >
-        {`We're Edouard and Asa, a two-person studio building physics-driven interfaces, interactive 3D, and apps that feel alive.
-
-Edouard drives the frontend: R3F, shaders, and motion. Asa runs the backend: APIs, data, and systems.
-
-This ship is FABRIQUE. That's us.`}
-      </Text>
-      <Text
-        anchorX="center"
-        anchorY="middle"
-        fontSize={0.13}
-        letterSpacing={0.05}
+        position={[0, 0.98, 0.04]}
+        size={0.078}
+        text="EDOUARD BUILDS THE FRONTEND"
+      />
+      <MetalTextLine
         material={material}
-        position={[-1.88, -1.42, 0]}
-      >
-        EDOUARD
-      </Text>
-      <Text
-        anchorX="center"
-        anchorY="middle"
-        fontSize={0.13}
-        letterSpacing={0.05}
+        position={[0, 0.78, 0.045]}
+        size={0.078}
+        text="ASA BUILDS THE BACKEND"
+      />
+      <MetalTextLine
         material={material}
-        position={[1.88, -1.42, 0]}
-      >
-        ASA
-      </Text>
+        position={[0, 0.55, 0.05]}
+        size={0.071}
+        text="PHYSICS-DRIVEN INTERFACES + INTERACTIVE 3D"
+      />
+      <MetalTextLine
+        material={material}
+        position={[0, 0.34, 0.055]}
+        size={0.069}
+        text="THIS SHIP IS FABRIQUE"
+      />
+      <MetalTextLine
+        material={material}
+        position={[-1.82, -1.42, 0.1]}
+        size={0.105}
+        text="EDOUARD"
+      />
+      <MetalTextLine
+        material={material}
+        position={[1.82, -1.42, 0.1]}
+        size={0.105}
+        text="ASA"
+      />
     </group>
+  );
+}
+
+function MetalTextLine({
+  material,
+  position,
+  size,
+  text,
+}: {
+  material: THREE.Material;
+  position: [number, number, number];
+  size: number;
+  text: string;
+}) {
+  return (
+    <Center position={position}>
+      <Text3D
+        bevelEnabled
+        bevelSegments={1}
+        bevelSize={size * 0.018}
+        bevelThickness={size * 0.012}
+        curveSegments={3}
+        font="/fonts/helvetiker_bold.typeface.json"
+        height={size * 0.065}
+        letterSpacing={0.02}
+        material={material}
+        size={size}
+      >
+        {text}
+      </Text3D>
+    </Center>
   );
 }
 
@@ -256,7 +301,30 @@ function CardHitboxes() {
     });
   }, []);
 
-  if (mode === "off" || mode === "about") return null;
+  useEffect(() => {
+    if (mode !== "about") return;
+    const goBack = () => setShowcaseMode("showcase");
+    window.addEventListener("pointerdown", goBack);
+    return () => window.removeEventListener("pointerdown", goBack);
+  }, [mode]);
+
+  if (mode === "off") return null;
+
+  if (mode === "about") {
+    return (
+      <mesh
+        position={[0, SHOWCASE_LAYOUT.centerY, SHOWCASE_LAYOUT.centerZ + 1.6]}
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowcaseMode("showcase");
+        }}
+        visible={false}
+      >
+        <planeGeometry args={[14, 9]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+    );
+  }
 
   // Expanded mode: a single big hit-plane covering the merged box.
   // It keeps hover/cursor behavior on the project surface, but clicks
@@ -484,7 +552,7 @@ function ResponsiveCamera() {
     const halfVFov = Math.max(halfVFovByW, halfVFovByH);
     const targetFov = (halfVFov * 2 * 180) / Math.PI;
 
-    cam.fov += (targetFov - cam.fov) * 0.2;
+    cam.fov += (targetFov - cam.fov) * (aboutActive ? 0.04 : 0.2);
     cam.updateProjectionMatrix();
   });
   return null;
