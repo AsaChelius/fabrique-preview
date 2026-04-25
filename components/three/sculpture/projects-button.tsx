@@ -10,10 +10,11 @@
  * pointer events for hover/click without disturbing the main cursor
  * physics on the big sculpture.
  *
- * Static by design — these shards do NOT participate in the main
- * ShardPhysicsState, so the cursor cannot push them around. Hover raises
- * the material's emissiveIntensity smoothly so the button "lights up".
- * Click toggles the in-scene project-card morph.
+ * These shards do NOT participate in the main ShardPhysicsState, but the
+ * root group gets the same global pointer-drag inertia as the sculpture
+ * so the button does not feel pinned while the rest of the metal moves.
+ * Hover raises the material's emissiveIntensity smoothly so the button
+ * "lights up". Click toggles the in-scene project-card morph.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -226,6 +227,13 @@ const BUTTON = {
   /** Per-frame lerp toward the target rotation — matches the scene's
    *  tiltLerp character so button + camera parallax move together. */
   tiltLerp: 0.12,
+  /** Whole-button translation from the same empty-space pointer motion
+   *  that drags the sculpture shards. Slightly stronger than individual
+   *  shard drag because this is one coherent control. */
+  dragScale: 1.18,
+  /** Spring/damping for the button's rubber-band return to rest. */
+  dragSpring: 30,
+  dragDamping: 8.5,
 
   // ---- Back-arrow extra Y offset while inside a project ----
   /** Base vertical drop for the back-arrow once NOS PROJETS has morphed
@@ -352,6 +360,16 @@ export function ProjectsButton() {
   // the per-shard outward displacement applied on top of the text
   // layout. Lerped toward hover ? 1 : 0 each frame.
   const hoverAmp = useRef(0);
+  const dragRaycaster = useMemo(() => new THREE.Raycaster(), []);
+  const dragPlane = useMemo(
+    () => new THREE.Plane(new THREE.Vector3(0, 0, 1), 0),
+    [],
+  );
+  const dragCursorWorld = useRef(new THREE.Vector3());
+  const prevDragCursorWorld = useRef(new THREE.Vector3());
+  const hasPrevDragCursorWorld = useRef(false);
+  const dragOffset = useRef(new THREE.Vector3());
+  const dragVelocity = useRef(new THREE.Vector3());
 
   // Rotations never change — precompute once from the text placements
   // and reuse for both text and arrow layouts. Gives a consistent
@@ -477,7 +495,7 @@ export function ProjectsButton() {
   // piece visibly reacts to mouse movement (the shards are placed
   // anamorphically toward the sweet-spot, which makes pure camera
   // parallax look subtle on them — adding rotation gives it real 3D).
-  useFrame((state) => {
+  useFrame((state, dt) => {
     const emTarget = hover ? BUTTON.hoverMaxEmissive : 0;
     material.emissiveIntensity +=
       (emTarget - material.emissiveIntensity) * BUTTON.hoverLerp;
@@ -488,6 +506,50 @@ export function ProjectsButton() {
 
     const group = groupRef.current;
     if (group) {
+      dragRaycaster.setFromCamera(state.pointer, state.camera);
+      const hit = dragRaycaster.ray.intersectPlane(
+        dragPlane,
+        dragCursorWorld.current,
+      );
+      let dragX = 0;
+      let dragY = 0;
+      if (hit) {
+        if (hasPrevDragCursorWorld.current) {
+          dragX = dragCursorWorld.current.x - prevDragCursorWorld.current.x;
+          dragY = dragCursorWorld.current.y - prevDragCursorWorld.current.y;
+        } else {
+          hasPrevDragCursorWorld.current = true;
+        }
+        prevDragCursorWorld.current.copy(dragCursorWorld.current);
+      } else {
+        hasPrevDragCursorWorld.current = false;
+      }
+
+      const globalMax = TUNING.globalPointerDragMax;
+      const globalX = Math.max(
+        -globalMax,
+        Math.min(globalMax, dragX * TUNING.globalPointerDragStrength),
+      );
+      const globalY = Math.max(
+        -globalMax,
+        Math.min(globalMax, dragY * TUNING.globalPointerDragStrength),
+      );
+      const h = Math.min(dt, TUNING.physicsMaxDt);
+      const offset = dragOffset.current;
+      const velocity = dragVelocity.current;
+      if (Math.abs(globalX) > 1e-5 || Math.abs(globalY) > 1e-5) {
+        velocity.x += globalX * BUTTON.dragScale;
+        velocity.y += globalY * 0.72 * BUTTON.dragScale;
+        velocity.z +=
+          globalX * TUNING.globalPointerDragZ * BUTTON.dragScale;
+      }
+      velocity.x -= offset.x * BUTTON.dragSpring * h;
+      velocity.y -= offset.y * BUTTON.dragSpring * h;
+      velocity.z -= offset.z * BUTTON.dragSpring * h;
+      velocity.multiplyScalar(Math.exp(-BUTTON.dragDamping * h));
+      offset.addScaledVector(velocity, h);
+      group.position.copy(offset);
+
       // Pointer is normalized to [-1, 1]. Tilt around Y from horizontal
       // movement, around X from vertical (inverted so "mouse up" tips
       // the top toward the camera — matches natural expectation).
