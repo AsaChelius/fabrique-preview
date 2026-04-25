@@ -37,7 +37,6 @@ const SELECT_CHIME_URL = SOUND_ASSETS.gallerySelect;
 const HOVER_TICK_URL = SOUND_ASSETS.galleryHover;
 import { SHOWCASE_LAYOUT } from "./showcase-targets";
 import {
-  collapseExpanded,
   expandCard,
   getMode,
   onModeChange,
@@ -168,7 +167,9 @@ function CardHitboxes() {
   if (mode === "off") return null;
 
   // Expanded mode: a single big hit-plane covering the merged box.
-  // Clicking it steps back to the 5-card showcase layout.
+  // It keeps hover/cursor behavior on the project surface, but clicks
+  // should not close the project. The arrow button is the explicit back
+  // control for expanded → showcase.
   if (mode === "expanded") {
     const w = TUNING.expandedBoxW;
     const h = TUNING.expandedBoxH;
@@ -183,11 +184,7 @@ function CardHitboxes() {
           e.stopPropagation();
           setCursorHover(false);
         }}
-        onClick={(e) => {
-          e.stopPropagation();
-          collapseExpanded();
-          setCursorHover(false);
-        }}
+        onClick={(e) => e.stopPropagation()}
         visible={false}
       >
         <planeGeometry args={[w, h]} />
