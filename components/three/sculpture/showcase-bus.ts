@@ -22,6 +22,13 @@ export type ShowcaseMode = "off" | "showcase" | "expanded";
 
 type ModeListener = (mode: ShowcaseMode, expandedCard: number | null) => void;
 type HoverListener = (hoveredCard: number | null) => void;
+export type CardImpulse = {
+  cardIdx: number;
+  dx: number;
+  dy: number;
+  speed: number;
+};
+type ImpulseListener = (impulse: CardImpulse) => void;
 // Legacy: fired with a boolean (active = mode !== "off") so existing
 // consumers (suspended-cloud, projects-button) keep working.
 type LegacyActiveListener = (active: boolean) => void;
@@ -32,6 +39,7 @@ let _hoveredCard: number | null = null;
 
 const _modeListeners = new Set<ModeListener>();
 const _hoverListeners = new Set<HoverListener>();
+const _impulseListeners = new Set<ImpulseListener>();
 const _legacyListeners = new Set<LegacyActiveListener>();
 
 function isActive(mode: ShowcaseMode): boolean {
@@ -92,6 +100,10 @@ export function setHoveredCard(idx: number | null): void {
   notifyHover();
 }
 
+export function pushCardImpulse(impulse: CardImpulse): void {
+  _impulseListeners.forEach((l) => l(impulse));
+}
+
 // ---- Legacy API (kept so projects-button / suspended-cloud don't need
 //                  simultaneous migration). ----
 
@@ -128,6 +140,13 @@ export function onHoveredChange(cb: HoverListener): () => void {
   _hoverListeners.add(cb);
   return () => {
     _hoverListeners.delete(cb);
+  };
+}
+
+export function onCardImpulse(cb: ImpulseListener): () => void {
+  _impulseListeners.add(cb);
+  return () => {
+    _impulseListeners.delete(cb);
   };
 }
 

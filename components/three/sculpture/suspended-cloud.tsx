@@ -23,11 +23,13 @@ import { useSculpturePalette } from "./palette";
 import {
   onModeChange,
   onHoveredChange,
+  onCardImpulse,
   getMode,
   getExpandedCard,
   getHoveredCard,
   type ShowcaseMode,
 } from "./showcase-bus";
+import { TUNING } from "./tuning";
 import {
   computeShowcaseLetterHomes,
   computeShowcaseFrameHomes,
@@ -204,9 +206,64 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
       letterShowcase.current.hoveredCard = h;
       frameShowcase.current.hoveredCard = h;
     });
+    const applyImpulseToSlice = (
+      cardIdx: number,
+      dx: number,
+      dy: number,
+      speed: number,
+      cardIndex: Int8Array | null,
+      start: number,
+      count: number,
+    ) => {
+      if (!cardIndex) return;
+      const strength =
+        TUNING.cardImpulseStrength * Math.min(1.8, 0.65 + speed * 34);
+      const max = TUNING.cardImpulseMax;
+      const ix = Math.max(-max, Math.min(max, dx * strength));
+      const iy = Math.max(-max, Math.min(max, dy * strength * 0.75));
+      const izBase = Math.max(
+        -max,
+        Math.min(max, dx * strength * TUNING.cardImpulseZ),
+      );
+      for (let i = 0; i < count; i++) {
+        if (cardIndex[i] !== cardIdx) continue;
+        const globalIdx = start + i;
+        const i3 = globalIdx * 3;
+        const n = Math.sin((globalIdx + 1) * 12.9898) * 43758.5453;
+        const jitter = 0.72 + (n - Math.floor(n)) * 0.56;
+        const zSign = globalIdx % 2 === 0 ? 1 : -1;
+        state.velocity[i3] += ix * jitter;
+        state.velocity[i3 + 1] += iy * jitter;
+        state.velocity[i3 + 2] += izBase * zSign * jitter;
+        state.offset[i3] += ix * 0.018 * jitter;
+        state.offset[i3 + 1] += iy * 0.014 * jitter;
+        state.offset[i3 + 2] += izBase * 0.012 * zSign * jitter;
+      }
+    };
+    const unsubImpulse = onCardImpulse(({ cardIdx, dx, dy, speed }) => {
+      applyImpulseToSlice(
+        cardIdx,
+        dx,
+        dy,
+        speed,
+        frameShowcase.current.cardIndex,
+        frameStart,
+        frameCount,
+      );
+      applyImpulseToSlice(
+        cardIdx,
+        dx,
+        dy,
+        speed,
+        letterShowcase.current.cardIndex,
+        letterStart,
+        letterCount,
+      );
+    });
     return () => {
       unsubMode();
       unsubHover();
+      unsubImpulse();
     };
   }, [clouds]);
 

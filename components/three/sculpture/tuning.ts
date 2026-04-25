@@ -267,6 +267,16 @@ export const TUNING = {
   windFreqY: 2.3,
   windFreqZ: 1.3,
 
+  /** Extra physical response when the pointer shakes over a project card.
+   *  Applied only to shards belonging to the hovered card. */
+  cardImpulseStrength: 1.9,
+  /** Cap for one pointer-move impulse so fast mouse movement feels lively
+   *  without exploding the pendulum state. */
+  cardImpulseMax: 0.16,
+  /** Tiny depth kick from horizontal movement so the boxes feel 3D, not
+   *  just like a flat XY ripple. */
+  cardImpulseZ: 0.38,
+
   /** Snake-style flow along the card outlines. Each outline shard gets
    *  pushed along its edge direction by a traveling sine wave — same
    *  wave across a given edge so the displacement reads as a continuous

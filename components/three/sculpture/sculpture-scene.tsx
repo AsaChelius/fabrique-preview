@@ -41,6 +41,7 @@ import {
   expandCard,
   getMode,
   onModeChange,
+  pushCardImpulse,
   setHoveredCard,
   type ShowcaseMode,
 } from "./showcase-bus";
@@ -223,8 +224,36 @@ function CardHitPlane({
   width: number;
   height: number;
 }) {
+  const lastPointRef = useRef<THREE.Vector3 | null>(null);
+  const lastMoveAtRef = useRef(0);
+
+  const updateImpulsePoint = (e: ThreeEvent<PointerEvent>) => {
+    const last = lastPointRef.current;
+    const now = performance.now();
+    if (last) {
+      const dx = e.point.x - last.x;
+      const dy = e.point.y - last.y;
+      const dist = Math.hypot(dx, dy);
+      const dt = Math.max(1, now - lastMoveAtRef.current);
+      if (dist > 0.002) {
+        pushCardImpulse({
+          cardIdx: idx,
+          dx,
+          dy,
+          speed: dist / dt,
+        });
+      }
+      last.copy(e.point);
+    } else {
+      lastPointRef.current = e.point.clone();
+    }
+    lastMoveAtRef.current = now;
+  };
+
   const onOver = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
+    lastPointRef.current = e.point.clone();
+    lastMoveAtRef.current = performance.now();
     setHoveredCard(idx);
     document.body.style.cursor = "pointer";
     setCursorHover(true);
@@ -238,6 +267,7 @@ function CardHitPlane({
     setHoveredCard(null);
     document.body.style.cursor = "";
     setCursorHover(false);
+    lastPointRef.current = null;
   };
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
@@ -249,6 +279,10 @@ function CardHitPlane({
     <mesh
       position={position}
       onPointerOver={onOver}
+      onPointerMove={(e) => {
+        e.stopPropagation();
+        updateImpulsePoint(e);
+      }}
       onPointerOut={onOut}
       onClick={onClick}
       visible={false}
