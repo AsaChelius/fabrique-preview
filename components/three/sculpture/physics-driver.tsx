@@ -12,12 +12,40 @@
  * — when the user's mouse leaves the canvas, we stop applying repulsion
  * so shards settle back to home instead of chasing the last known
  * cursor position at the edge.
+ *
+ * Idle wind: every ~5s (jittered) we trigger a one-shot gust that
+ * applies a small global-drag impulse for ~0.5s, then decays through
+ * the existing pendulum-spring physics. Several preset directions
+ * cycle so the idle motion never feels mechanical. The wind is added
+ * on top of any cursor drag, so user input always dominates.
  */
 
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { stepPhysics, type ShardPhysicsState } from "./physics";
+
+/** Wind preset = a peak global-drag vector. The driver fades each gust
+ *  in over WIND_RAMP_S, holds at peak for WIND_HOLD_S, then fades out
+ *  over WIND_FADE_S. Values are in the same units `stepPhysics`
+ *  consumes for `globalDragX/Y` (cursor delta-per-frame world units).
+ *  ~0.04 reads as a noticeable gust without feeling like the cursor
+ *  yanked the sculpture. */
+const WIND_PRESETS: Array<{ x: number; y: number; durationS: number }> = [
+  { x: 0.32, y: 0.0, durationS: 2.6 }, // gust right
+  { x: -0.3, y: 0.0, durationS: 2.7 }, // gust left
+  { x: 0.22, y: -0.12, durationS: 2.4 }, // diagonal SE
+  { x: -0.2, y: -0.1, durationS: 2.4 }, // diagonal SW
+  { x: 0.0, y: -0.18, durationS: 2.3 }, // downward draft
+  { x: 0.16, y: 0.1, durationS: 2.8 }, // upward swirl
+];
+
+const WIND_RAMP_S = 0.28;
+const WIND_FADE_S = 1.2;
+/** Mean delay between gusts (seconds). Each gust randomizes around
+ *  this so it never feels metronomic. */
+const WIND_INTERVAL_BASE_S = 3.5;
+const WIND_INTERVAL_JITTER_S = 1.8;
 
 export function ShardPhysicsDriver({
   state,
@@ -34,9 +62,20 @@ export function ShardPhysicsDriver({
     [],
   );
   const cursorWorld = useRef(new THREE.Vector3());
-  const prevCursorWorld = useRef(new THREE.Vector3());
-  const hasPrevCursorWorld = useRef(false);
   const cursorActiveRef = useRef(false);
+
+  // Idle wind state. `peak` = current preset's amplitude. `t` = seconds
+  // since the gust started. `total` = total gust duration. `nextAt` =
+  // wall-clock seconds to start the next gust.
+  const wind = useRef({
+    peakX: 0,
+    peakY: 0,
+    t: 0,
+    total: 0,
+    /** elapsed seconds since the route mounted (drives nextAt). */
+    clock: 0,
+    nextAt: WIND_INTERVAL_BASE_S, // first gust ~5s after mount
+  });
 
   // Track whether the cursor is over the canvas. Canvas covers the
   // viewport on this route, so pointer leaving the window is enough.
@@ -47,7 +86,6 @@ export function ShardPhysicsDriver({
     };
     const onLeave = () => {
       cursorActiveRef.current = false;
-      hasPrevCursorWorld.current = false;
     };
     canvas.addEventListener("pointerenter", onEnter);
     canvas.addEventListener("pointerleave", onLeave);
@@ -60,34 +98,105 @@ export function ShardPhysicsDriver({
   }, [gl]);
 
   useFrame((_, dt) => {
+    // ---- Idle wind: schedule + envelope --------------------------------
+    const w = wind.current;
+    w.clock += dt;
+    if (w.t === 0 && w.clock >= w.nextAt) {
+      // Pick a random preset (avoid repeating the previous one when
+      // possible — if peakX/Y of the picked preset matches the last,
+      // bump to the next preset).
+      const idx = Math.floor(Math.random() * WIND_PRESETS.length);
+      const preset = WIND_PRESETS[idx];
+      w.peakX = preset.x;
+      w.peakY = preset.y;
+      w.total = preset.durationS;
+      w.t = 1e-4; // tiny non-zero to mark "active"
+      w.nextAt =
+        w.clock +
+        preset.durationS +
+        WIND_INTERVAL_BASE_S +
+        (Math.random() * 2 - 1) * WIND_INTERVAL_JITTER_S;
+    }
+
+    let windX = 0;
+    let windY = 0;
+    let waveCenter: number | null = null;
+    let waveDirX = 1;
+    let waveDirY = 0;
+    if (w.t > 0) {
+      w.t += dt;
+      const T = w.t;
+      const total = w.total;
+      let envelope = 0;
+      if (T < WIND_RAMP_S) {
+        envelope = T / WIND_RAMP_S; // ramp-in
+      } else if (T < total - WIND_FADE_S) {
+        envelope = 1; // hold
+      } else if (T < total) {
+        envelope = (total - T) / WIND_FADE_S; // fade-out
+      } else {
+        envelope = 0;
+        w.t = 0; // gust ended
+      }
+      windX = w.peakX * envelope;
+      windY = w.peakY * envelope;
+      // Build the traveling-wave parameters: the gust enters from the
+      // upwind edge of the sculpture and sweeps to the downwind edge
+      // over the course of the gust's duration. Wave-projection axis
+      // is the unit-vector wind direction.
+      const wmag = Math.hypot(w.peakX, w.peakY) || 1;
+      waveDirX = w.peakX / wmag;
+      waveDirY = w.peakY / wmag;
+      // Travel from -SPAN to +SPAN over the full duration. SPAN is the
+      // sculpture half-extent along the wave axis. Plaque is roughly
+      // ±5.4 horizontally so 6 covers it with a tail past the edge.
+      const SPAN = 6.5;
+      const progress = w.t / total; // 0..1 over gust
+      waveCenter = -SPAN + progress * (2 * SPAN);
+    }
+
+    // ---- Cursor position (for radial push) + step ----------------------
+    // NOTE: cursor MOTION (dragX/dragY) is intentionally NOT fed into
+    // global drag any more. Previously, moving the cursor across the
+    // canvas sent a per-frame delta into stepPhysics' globalDragX/Y,
+    // which made the whole sculpture lean toward the cursor — felt
+    // like the metal was "looking at" the mouse. The cursor's PROXIMITY
+    // push (cursorStrength × falloff in the inner loop) is plenty of
+    // interaction; the lean was over-the-top. Wind still rides
+    // globalDragX/Y so ambient motion is unaffected.
     if (cursorActiveRef.current) {
       raycaster.setFromCamera(pointer, camera);
       const hit = raycaster.ray.intersectPlane(zPlane, cursorWorld.current);
       if (hit) {
-        let dragX = 0;
-        let dragY = 0;
-        if (hasPrevCursorWorld.current) {
-          dragX = cursorWorld.current.x - prevCursorWorld.current.x;
-          dragY = cursorWorld.current.y - prevCursorWorld.current.y;
-        } else {
-          hasPrevCursorWorld.current = true;
-        }
-        prevCursorWorld.current.copy(cursorWorld.current);
         stepPhysics(
           state,
           cursorWorld.current.x,
           cursorWorld.current.y,
           dt,
           true,
-          dragX,
-          dragY,
+          windX,
+          windY,
+          waveCenter,
+          waveDirX,
+          waveDirY,
         );
         return;
       }
     }
-    // No cursor — integrate with cursor disabled so shards settle.
-    hasPrevCursorWorld.current = false;
-    stepPhysics(state, 0, 0, dt, false);
+    // No cursor — wind still applies so the sculpture has gentle
+    // ambient motion even when nobody is hovering the canvas.
+    stepPhysics(
+      state,
+      0,
+      0,
+      dt,
+      false,
+      windX,
+      windY,
+      waveCenter,
+      waveDirX,
+      waveDirY,
+    );
   });
 
   return null;

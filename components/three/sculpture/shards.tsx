@@ -27,6 +27,7 @@ import { TUNING } from "./tuning";
 import type { Placement } from "./placements";
 import type { ShardPhysicsState } from "./physics";
 import { setCursorHover } from "./cursor-bus";
+import { getDrops, wind as rippleWind } from "./ripple-bus";
 
 export type ShowcaseRef = {
   active: boolean;
@@ -269,6 +270,18 @@ export function Shards({
     const snakeK = TUNING.snakeWaveCount * Math.PI * 2;
     const snakeOmega = TUNING.snakeWaveSpeed * Math.PI * 2;
 
+    // Mirror copy = water surface. Add a gentle sin-wave displacement
+    // that's a function of world XY + time so the reflected sculpture
+    // wobbles like a reflection on lightly rippling water. Two waves
+    // at different frequencies layered = natural wobble (no metronomic
+    // ringing). The displacement only applies to the mirror copy
+    // (interactive===false); the actual sculpture above the water is
+    // untouched.
+    const isMirror = !interactive;
+    const rippleAmp = isMirror ? TUNING.waterRippleAmp : 0;
+    const rippleK1 = TUNING.waterRippleFreq;
+    const rippleK2 = TUNING.waterRippleFreq * 1.37;
+
     for (let i = 0; i < N; i++) {
       const gi = stateStart + i;
       const h3 = gi * 3;
@@ -323,10 +336,87 @@ export function Shards({
           breathe;
       }
 
+      // Water ripple — only applied to the mirror copy.
+      //   1. Base layer: two layered sin waves keyed off world XY for
+      //      the small omnipresent micro-chop on the surface.
+      //   2. Wind ripples: directional traveling waves (two crossed)
+      //      adding a sense of breeze blowing across the water.
+      //   3. Drop ripples: concentric circles expanding from impact
+      //      points spawned by RippleScheduler. Each ripple is a
+      //      Gaussian bump traveling outward at the drop's speed,
+      //      decaying over its lifetime.
+      let rippleX = 0;
+      let rippleZ = 0;
+      if (rippleAmp > 0) {
+        const wxh = s.home[h3];
+        const wyh = s.home[h3 + 1];
+
+        // 1. Base micro-chop (kept from earlier — small + always on).
+        rippleX =
+          (Math.sin(t * rippleK1 + wxh * 1.7 + wyh * 0.9) +
+            0.6 * Math.sin(t * rippleK2 + wxh * 0.5 - wyh * 1.3)) *
+          rippleAmp;
+        rippleZ =
+          (Math.cos(t * rippleK1 * 1.13 + wxh * 0.8 + wyh * 1.2) +
+            0.5 * Math.sin(t * rippleK2 * 0.91 - wxh * 1.4)) *
+          rippleAmp *
+          0.8;
+
+        // 2. Wind ripples — two crossed directional waves.
+        const w = rippleWind;
+        const phase1 = wxh * w.dirX * w.k + wyh * w.dirY * w.k - t * w.omega;
+        const phase2 =
+          wxh * w.dir2X * w.k2 + wyh * w.dir2Y * w.k2 - t * w.omega2;
+        const windDX =
+          Math.sin(phase1) * w.amp * w.dirX +
+          Math.sin(phase2) * w.amp2 * w.dir2X;
+        const windDZ =
+          Math.sin(phase1) * w.amp * w.dirY +
+          Math.sin(phase2) * w.amp2 * w.dir2Y;
+        rippleX += windDX;
+        rippleZ += windDZ;
+
+        // 3. Drop ripples — concentric expanding rings. For each live
+        //    drop, the wave at this shard's position is sin(2π*(r-rt)/λ)
+        //    multiplied by a radial Gaussian envelope (so the energy is
+        //    concentrated in a thin ring, not a global oscillation) AND
+        //    a temporal decay envelope.
+        const drops = getDrops();
+        for (let di = 0; di < drops.length; di++) {
+          const drop = drops[di];
+          const age = t - drop.startT;
+          if (age < 0 || age > drop.lifeS) continue;
+          const ddx = wxh - drop.cx;
+          const ddy = wyh - drop.cy;
+          const dist = Math.sqrt(ddx * ddx + ddy * ddy);
+          const ringR = age * drop.speed;
+          const ringWidth = drop.wavelength * 1.6;
+          const radialDelta = dist - ringR;
+          // Gaussian-ish envelope: only ring within ±ringWidth of the
+          // current radius receives any displacement.
+          if (Math.abs(radialDelta) > ringWidth * 1.8) continue;
+          const radialEnv = Math.exp(
+            -(radialDelta * radialDelta) / (ringWidth * ringWidth),
+          );
+          const timeEnv = 1 - age / drop.lifeS;
+          const wave =
+            Math.sin((Math.PI * 2 * radialDelta) / drop.wavelength) *
+            drop.amp *
+            radialEnv *
+            timeEnv;
+          if (dist > 1e-4) {
+            // Project radial displacement onto XY direction.
+            const invDist = 1 / dist;
+            rippleX += (ddx * invDist) * wave;
+            rippleZ += (ddy * invDist) * wave;
+          }
+        }
+      }
+
       pos.set(
-        s.home[h3] + s.offset[h3] + sway + dx,
+        s.home[h3] + s.offset[h3] + sway + dx + rippleX,
         s.home[h3 + 1] + s.offset[h3 + 1] + bob + dy,
-        s.home[h3 + 2] + s.offset[h3 + 2] + dz,
+        s.home[h3 + 2] + s.offset[h3 + 2] + dz + rippleZ,
       );
       if (orientEdgeFlow) {
         const e4 = i * 4;
@@ -408,6 +498,8 @@ export function Shards({
   // we render two distinct mesh JSX trees instead of one with conditional
   // props.
   if (!interactive) {
+    // Mirror copy doesn't cast shadows — it lives below the floor and
+    // would self-shadow weirdly through the water plane.
     return (
       <instancedMesh
         ref={meshRef}

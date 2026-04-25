@@ -6,8 +6,9 @@
  * Responsibilities:
  *   - Toggle `body.sculpture-mode` so globals.css hides the dark-theme
  *     chrome (site backdrop, brand text, route nav) for this route only.
- *   - Mount the R3F canvas inside a full-viewport white container.
+ *   - Mount the R3F canvas inside a full-viewport container.
  *   - Provide a small "Replay" button that re-kicks the reveal animation.
+ *   - Provide a 3-button background-mode picker: Light / Grey / Dark.
  */
 
 import { useEffect, useState } from "react";
@@ -21,6 +22,8 @@ import { attachSculptureAmbient } from "./sculpture-ambient";
 import { SOUND_ASSETS, playSample, unlockAudio } from "@/lib/sound";
 
 const LIGHT_SWITCH_URL = SOUND_ASSETS.lightToggle;
+
+type ModeChoice = "light" | "sunset" | "dark";
 
 const pillStyle = {
   position: "fixed" as const,
@@ -36,8 +39,27 @@ const pillStyle = {
   fontFamily: "inherit",
 };
 
+const segmentBaseStyle = {
+  background: "transparent",
+  border: "1px solid #6b6e76",
+  color: "#2c2e33",
+  padding: "0.45rem 0.95rem",
+  fontSize: "0.66rem",
+  letterSpacing: "0.18em",
+  textTransform: "uppercase" as const,
+  cursor: "pointer",
+  fontFamily: "inherit",
+} as const;
+
+const segmentActiveStyle = {
+  ...segmentBaseStyle,
+  background: "#1d1f24",
+  color: "#f4f1e7",
+  border: "1px solid #1d1f24",
+};
+
 export function SculptureRoute() {
-  const [dark, setDark] = useState(false);
+  const [mode, setMode] = useState<ModeChoice>("light");
 
   useEffect(() => {
     document.body.classList.add("sculpture-mode");
@@ -45,14 +67,16 @@ export function SculptureRoute() {
     return () => {
       document.body.classList.remove("sculpture-mode");
       document.body.classList.remove("sculpture-dark");
+      document.body.classList.remove("sculpture-sunset");
       setShowcase(false);
       detachAmbient();
     };
   }, []);
 
   useEffect(() => {
-    document.body.classList.toggle("sculpture-dark", dark);
-  }, [dark]);
+    document.body.classList.toggle("sculpture-dark", mode === "dark");
+    document.body.classList.toggle("sculpture-sunset", mode === "sunset");
+  }, [mode]);
 
   useEffect(() => {
     const forceDark = () => {
@@ -60,14 +84,14 @@ export function SculptureRoute() {
       playSample(LIGHT_SWITCH_URL, 0.38, 0, undefined, {
         reverbSend: 0.06,
       });
-      setDark(true);
+      setMode("dark");
     };
     const forceLight = () => {
       unlockAudio();
       playSample(LIGHT_SWITCH_URL, 0.32, 0, undefined, {
         reverbSend: 0.05,
       });
-      setDark(false);
+      setMode("light");
     };
     window.addEventListener("sculpture-force-dark", forceDark);
     window.addEventListener("sculpture-force-light", forceLight);
@@ -76,6 +100,15 @@ export function SculptureRoute() {
       window.removeEventListener("sculpture-force-light", forceLight);
     };
   }, []);
+
+  const choose = (next: ModeChoice) => {
+    if (next === mode) return;
+    unlockAudio();
+    playSample(LIGHT_SWITCH_URL, 0.5, 0, undefined, {
+      reverbSend: 0.07,
+    });
+    setMode(next);
+  };
 
   return (
     <main>
@@ -92,25 +125,55 @@ export function SculptureRoute() {
           triggerReveal();
         }}
         aria-label="Replay reveal animation"
-        style={{ ...pillStyle, bottom: "2rem", left: "50%", transform: "translateX(-50%)" }}
+        style={{
+          ...pillStyle,
+          bottom: "2rem",
+          left: "50%",
+          transform: "translateX(-50%)",
+        }}
       >
         Replay
       </button>
-      <button
-        type="button"
-        onClick={() => {
-          unlockAudio();
-          // Relay-style click for the gallery lighting change.
-          playSample(LIGHT_SWITCH_URL, 0.56, 0, undefined, {
-            reverbSend: 0.08,
-          });
-          setDark((d) => !d);
+      {/* Background-mode picker — three explicit buttons in a row. The
+          active mode reads as a filled pill, inactive ones as outline. */}
+      <div
+        style={{
+          position: "fixed",
+          zIndex: 20,
+          top: "2rem",
+          right: "2rem",
+          display: "flex",
+          gap: "0.4rem",
         }}
-        aria-label="Toggle dark mode"
-        style={{ ...pillStyle, top: "2rem", right: "2rem" }}
       >
-        {dark ? "Light" : "Dark"}
-      </button>
+        <button
+          type="button"
+          onClick={() => choose("light")}
+          aria-label="Light background"
+          aria-pressed={mode === "light"}
+          style={mode === "light" ? segmentActiveStyle : segmentBaseStyle}
+        >
+          White
+        </button>
+        <button
+          type="button"
+          onClick={() => choose("sunset")}
+          aria-label="Sunset background"
+          aria-pressed={mode === "sunset"}
+          style={mode === "sunset" ? segmentActiveStyle : segmentBaseStyle}
+        >
+          Sunset
+        </button>
+        <button
+          type="button"
+          onClick={() => choose("dark")}
+          aria-label="Dark background"
+          aria-pressed={mode === "dark"}
+          style={mode === "dark" ? segmentActiveStyle : segmentBaseStyle}
+        >
+          Dark
+        </button>
+      </div>
       <RouteTransition />
       <SculptureCursor />
       <WindchimeMotion />

@@ -91,6 +91,17 @@ export function stepPhysics(
   cursorActive: boolean,
   globalDragX = 0,
   globalDragY = 0,
+  /** When non-null, the global-drag impulse is applied as a TRAVELING
+   *  WAVE through the sculpture instead of uniformly. `waveCenter` is
+   *  the projection (along the wave-direction axis) where the gust is
+   *  currently peaking. Each shard's per-frame impulse scales with a
+   *  Gaussian centered on this projection — so the wave passes through
+   *  the metal from one side to the other rather than hitting all
+   *  pieces simultaneously. */
+  waveCenter: number | null = null,
+  waveDirX = 1,
+  waveDirY = 0,
+  waveWidth = 2.4,
 ): void {
   const N = state.count;
   const h = state.home;
@@ -116,6 +127,8 @@ export function stepPhysics(
   const cappedDt = Math.min(dt, TUNING.physicsMaxDt);
   const dampFactor = Math.exp(-D * cappedDt);
   const hasGlobalDrag = Math.abs(globalX) > 1e-5 || Math.abs(globalY) > 1e-5;
+  const waveActive = waveCenter !== null;
+  const invWidth2 = waveActive ? 1 / (waveWidth * waveWidth) : 0;
 
   for (let i = 0; i < N; i++) {
     const i3 = i * 3;
@@ -148,9 +161,18 @@ export function stepPhysics(
       const n = Math.sin((i + 1) * 12.9898) * 43758.5453;
       const jitter = 0.72 + (n - Math.floor(n)) * 0.56;
       const zSign = i % 2 === 0 ? 1 : -1;
-      v[i3] += globalX * jitter;
-      v[i3 + 1] += globalY * 0.72 * jitter;
-      v[i3 + 2] += globalX * TUNING.globalPointerDragZ * zSign * jitter;
+      let factor = jitter;
+      if (waveActive) {
+        // Project the shard's home onto the wave-propagation axis and
+        // weight the impulse by a Gaussian centered on waveCenter.
+        // Shards far from the current crest get almost no push.
+        const proj = h[i3] * waveDirX + h[i3 + 1] * waveDirY;
+        const dist = proj - (waveCenter as number);
+        factor *= Math.exp(-dist * dist * invWidth2);
+      }
+      v[i3] += globalX * factor;
+      v[i3 + 1] += globalY * 0.72 * factor;
+      v[i3 + 2] += globalX * TUNING.globalPointerDragZ * zSign * factor;
     }
 
     const k = G * invL[i];

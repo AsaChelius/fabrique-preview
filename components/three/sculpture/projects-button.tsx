@@ -191,12 +191,20 @@ const BUTTON = {
 
   // ---- Material ----
   baseColor: "#5a5e66",
-  /** Warm-white glow color blended in on hover. */
-  hoverEmissive: "#ffd48a",
+  /** Glow color blended in on hover — pure white so the label fades
+   *  toward white as the cursor approaches and reads as fully white
+   *  when hovered. */
+  hoverEmissive: "#ffffff",
   /** Max emissive intensity when fully hovered. */
-  hoverMaxEmissive: 1.1,
-  /** Hover lerp speed (per frame). */
-  hoverLerp: 0.18,
+  hoverMaxEmissive: 1.4,
+  /** Hover lerp speed (per frame). Slower so the proximity ramp feels
+   *  like a smooth fade rather than a snap. */
+  hoverLerp: 0.10,
+  /** World-space cursor distance at which the proximity glow starts to
+   *  ramp on. Pulled WAY out so the label begins lighting up long
+   *  before the cursor reaches the button — cursor 4 world units away
+   *  already starts the smoothstep ramp. */
+  proximityMaxDistance: 4.5,
 
   // ---- Wire config ----
   wireRadius: 0.0005,
@@ -501,21 +509,43 @@ export function ProjectsButton() {
   // anamorphically toward the sweet-spot, which makes pure camera
   // parallax look subtle on them — adding rotation gives it real 3D).
   useFrame((state, dt) => {
-    const emTarget = hover ? BUTTON.hoverMaxEmissive : 0;
+    const group = groupRef.current;
+    dragRaycaster.setFromCamera(state.pointer, state.camera);
+    const hit = group
+      ? dragRaycaster.ray.intersectPlane(
+          dragPlane,
+          dragCursorWorld.current,
+        )
+      : null;
+
+    // Proximity factor (0..1): 1 when cursor is at/over the button label,
+    // smoothstep ramp to 0 as cursor moves out to proximityMaxDistance.
+    let proximity = 0;
+    if (hit) {
+      const cdx = dragCursorWorld.current.x - 0;
+      const cdy = dragCursorWorld.current.y - TUNING.buttonCenterY;
+      const cd = Math.sqrt(cdx * cdx + cdy * cdy);
+      const tNorm = Math.max(
+        0,
+        Math.min(1, 1 - cd / BUTTON.proximityMaxDistance),
+      );
+      proximity = tNorm * tNorm * (3 - 2 * tNorm); // smoothstep
+    }
+    // Hover guarantees full intensity (it's still the most-saturated
+    // state); proximity provides the smooth ramp-up before that.
+    const emTargetFactor = Math.max(proximity, hover ? 1 : 0);
+    const emTarget = emTargetFactor * BUTTON.hoverMaxEmissive;
     material.emissiveIntensity +=
       (emTarget - material.emissiveIntensity) * BUTTON.hoverLerp;
 
+    // Separation only kicks in when the cursor is actually over the
+    // button — proximity drives the glow; hover drives the spatial
+    // "pieces breathe apart" cue.
     const ampTarget = hover ? 1 : 0;
     hoverAmp.current +=
       (ampTarget - hoverAmp.current) * BUTTON.hoverSeparationLerp;
 
-    const group = groupRef.current;
     if (group) {
-      dragRaycaster.setFromCamera(state.pointer, state.camera);
-      const hit = dragRaycaster.ray.intersectPlane(
-        dragPlane,
-        dragCursorWorld.current,
-      );
       let dragX = 0;
       let dragY = 0;
       if (hit) {

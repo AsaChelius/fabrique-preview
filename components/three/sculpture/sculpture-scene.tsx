@@ -14,23 +14,19 @@
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
-import {
-  Center,
-  Environment,
-  MeshReflectorMaterial,
-  Text3D,
-} from "@react-three/drei";
+import { Center, Environment, Text3D } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { PerspectiveCamera as PerspectiveCameraImpl } from "three";
 import { SuspendedCloud } from "./suspended-cloud";
 import { ProjectsButton } from "./projects-button";
 import { AboutUsMetalButton } from "./about-us-metal-button";
-import { DustMotes } from "./overhead";
 import { useSculpturePalette, type SculpturePalette } from "./palette";
 import { TUNING } from "./tuning";
 import { onReveal } from "./reveal-bus";
 import { setCursorHover, resetCursorHover } from "./cursor-bus";
+import { spawnDrop, pruneDrops } from "./ripple-bus";
+import { WaterRipples } from "./water-ripples";
 import {
   SOUND_ASSETS,
   playSample,
@@ -83,11 +79,11 @@ export function SculptureScene() {
 
         <AnimatedSceneColors palette={palette} />
         {/* Faint ambient so back-facing shards never crush to black. */}
-        <ambientLight intensity={0.22} />
+        <ambientLight intensity={0.10} />
 
         <ResponsiveCamera />
         <RevealCamera />
-        <DustMotes />
+        <RippleScheduler />
         <SuspendedCloud />
         <ProjectsButton />
         <CardHitboxes />
@@ -490,17 +486,21 @@ function AnimatedSceneColors({ palette }: { palette: SculpturePalette }) {
 
   return (
     <>
-      {/* Strong key light — metal needs hard specular hotspots to look
-          metallic. Without this everything goes matte against white. */}
+      {/* Strong directional KEY ("the sun"). Pushed to the upper-right
+          and brightened so it clearly reads as light coming from a
+          specific direction. Shadow casting disabled — the projected
+          shadow on the water was distracting. The sense of direction
+          comes purely from how the shards catch the light. */}
       <directionalLight
         ref={keyRef}
-        position={[4, 5, 6]}
-        intensity={2.4}
+        position={[10, 9, 4]}
+        intensity={3.6}
       />
-      {/* Cool fill from the opposite side — picks out edges the key misses. */}
-      <directionalLight ref={fillRef} position={[-5, 2, 3]} intensity={0.55} />
-      {/* Back rim — separates the cloud from the white. */}
-      <directionalLight ref={rimRef} position={[0, 2, -6]} intensity={0.9} />
+      {/* Cool fill from the opposite side — dimmer now so the
+          shadow side reads darker and the directionality is obvious. */}
+      <directionalLight ref={fillRef} position={[-5, 2, 3]} intensity={0.22} />
+      {/* Back rim — keeps the silhouette from going totally flat. */}
+      <directionalLight ref={rimRef} position={[0, 2, -6]} intensity={0.45} />
     </>
   );
 }
@@ -622,12 +622,57 @@ function RevealCamera() {
 }
 
 /**
- * Invisible floor that shows ONLY as a soft reflection of the sculpture.
+ * Spawns drop-style ripples on a randomized cadence and prunes expired
+ * drops once per frame. The mirror copy of <Shards /> reads the bus
+ * directly — this scheduler only manages the spawn timing.
  *
- * The plane's base color matches the background exactly, so the surface
- * itself has no visible edge. MeshReflectorMaterial renders the scene
- * from underneath and blends that reflection in at low strength, so what
- * you see is a ghost of the hanging shards mirrored on the ground.
+ * Drops land within the rectangle covered by the FABRIQUE plaque + a
+ * margin, so the ripples appear to come from objects near the
+ * sculpture (rather than randomly on the open water).
+ */
+function RippleScheduler() {
+  const nextAtRef = useRef(2.5); // first drop ~2.5s after mount
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    pruneDrops(t);
+    if (t < nextAtRef.current) return;
+    // Spawn a drop somewhere within the broader sculpture footprint.
+    const cx = (Math.random() * 2 - 1) * (TUNING.wordHalfWidth + 1.5);
+    const cy = (Math.random() * 2 - 1) * (TUNING.wordHalfWidth / 2 + 1.0);
+    spawnDrop({
+      cx,
+      cy,
+      startT: t,
+      lifeS: 5.5 + Math.random() * 1.8,
+      // Big amplitude so the concentric rings actually pop on the water
+      // (the shader brightens with this value).
+      amp: 0.16 + Math.random() * 0.07,
+      // Slower speed so the rings linger and the user can watch them
+      // expand. Faster than human reflex still, but visible.
+      speed: 1.0 + Math.random() * 0.5,
+      // Wider rings so each crest is clearly visible (not micro-chop).
+      wavelength: 0.7 + Math.random() * 0.4,
+    });
+    // Schedule next drop 1.5–3.5s out — more frequent than before so
+    // there's almost always a ripple in motion.
+    nextAtRef.current = t + 1.5 + Math.random() * 2.0;
+  });
+  return null;
+}
+
+/**
+ * Floor as a literal mirror.
+ *
+ * The actual mirror is the flipped <SuspendedCloud /> mounted by
+ * SculptureScene below the floor plane (`<MirrorBelow />`). What we
+ * see "in the floor" is the reflected geometry itself — pixel-perfect,
+ * not drei's blurred reflection map.
+ *
+ * This component just renders a thin tinted pane on top of that
+ * mirror. Opacity is `palette.floorOpacity` — light mode = nearly
+ * transparent (the mirror reads literally), grey mode = a touch
+ * tinted, dark mode = semi-opaque to dim the reflection against the
+ * dark plane.
  */
 function ReflectiveFloor({ palette }: { palette: SculpturePalette }) {
   const matRef = useRef<THREE.Material & { color: THREE.Color }>(null);
@@ -635,51 +680,24 @@ function ReflectiveFloor({ palette }: { palette: SculpturePalette }) {
     () => new THREE.Color(palette.floor),
     [palette.floor],
   );
-  // Use the LIVE palette.floor as the initial color. The matKey differs
-  // between modes (mirror + mixStrength + mixContrast all change), so
-  // the material remounts on toggle and picks up the correct base
-  // color immediately — no stale "color captured on first render" bug.
   const initialColor = palette.floor;
   useFrame(() => {
     if (matRef.current) matRef.current.color.lerp(targetColor, TUNING.paletteLerp);
   });
-  const reflective = palette.floorReflective;
-  const matKey = reflective
-    ? `ref-${palette.floorMirror.toFixed(2)}-${palette.floorMixStrength.toFixed(2)}-${palette.floorMixContrast.toFixed(2)}-${palette.floorReflectBlur.toFixed(2)}-${palette.floorMixBlur.toFixed(2)}`
-    : "basic";
+  // matKey changes per mode so the material remounts on toggle and
+  // picks up the correct base color immediately.
+  const matKey = `mirror-${palette.floor}-${palette.floorOpacity.toFixed(3)}`;
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, TUNING.floorY, 0]}>
-      {/* Generous extent so reflections don't clip at the edges when the
-          camera pans. 40x40 world units is plenty. */}
-      <planeGeometry args={[40, 40]} />
-      {reflective ? (
-        <MeshReflectorMaterial
-          key={matKey}
-          ref={(m) => {
-            matRef.current =
-              (m as unknown as THREE.Material & { color: THREE.Color }) ?? null;
-          }}
-          color={initialColor}
-          mirror={palette.floorMirror}
-          blur={[palette.floorReflectBlur, palette.floorReflectBlur / 3]}
-          mixBlur={palette.floorMixBlur}
-          mixStrength={palette.floorMixStrength}
-          mixContrast={palette.floorMixContrast}
-          resolution={1024}
-          /* metalness=0 + high base roughness kills the directional-light
-             specular hotspot (the "glare" in the center of the reflection).
-             The mirror reflection still comes through via mixStrength because
-             that blend is separate from the base material's Phong response. */
-          metalness={0}
-          roughness={1.0}
-          depthScale={0}
-        />
-      ) : (
-        // Dark mode: semi-transparent dark pane. The mirror sculpture
-        // below renders first (opaque); this plane then alpha-blends
-        // on top so we see the reflected shards through a tinted
-        // glass. Opacity 0.68 = floor reads mostly-black with bright
-        // shard reflections punching through at ~32% brightness.
+    <>
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, TUNING.floorY, 0]}
+      >
+        {/* Massive plane so the far edge sits at the camera's horizon
+            line and the side edges are way outside any visible
+            viewport. Combined with floor color = bg color, the water
+            reads as extending to the horizon with no visible edges. */}
+        <planeGeometry args={[2000, 2000]} />
         <meshBasicMaterial
           key={matKey}
           ref={(m) => {
@@ -688,10 +706,18 @@ function ReflectiveFloor({ palette }: { palette: SculpturePalette }) {
           }}
           color={initialColor}
           transparent
-          opacity={0.68}
+          opacity={palette.floorOpacity}
           depthWrite={false}
         />
-      )}
-    </mesh>
+      </mesh>
+      {/* Animated water-surface ripples — large transparent plane
+          rendered ABOVE the floor that adds visible directional
+          wind ripples and concentric drop ripples across the entire
+          water surface. The shader output is a near-bg-color tint
+          with subtle alpha modulation, so it's invisible where the
+          ripple is at rest and reads as a soft tone shift where
+          waves crest. */}
+      <WaterRipples palette={palette} />
+    </>
   );
 }

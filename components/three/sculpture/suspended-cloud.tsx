@@ -347,7 +347,15 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
 
   return (
     <>
-      <ShardPhysicsDriver state={clouds.physics} />
+      {/* Only the interactive (above-water) copy runs the physics
+          driver. The mirror copy is rendered with its OWN state held
+          at home positions, so its shards just have the deterministic
+          idle sway (same sin function, same seeds → matches the main
+          copy's sway exactly). Without a driver, the mirror can't
+          diverge from the main due to wind randomness or frame
+          ordering — eliminating the perceived "reflection delay" when
+          the cursor pushes the metal. */}
+      {interactive && <ShardPhysicsDriver state={clouds.physics} />}
       <Shards
         placements={clouds.frame}
         color={palette.frameShard}

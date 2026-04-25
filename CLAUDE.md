@@ -1,42 +1,9 @@
 # FABRIQUE — Claude rules
 
-This repo is shared by two developers working in **separate lanes**. Before
-doing anything, figure out which developer you're helping and apply the
-matching lane rules.
-
----
-
-## 1. Identify your user (read first, every session)
-
-Run:
-
-```bash
-git config user.email
-```
-
-| Email | User | Lane |
-| --- | --- | --- |
-| `edouardghabitationcanadienne@gmail.com` | **Edouard Gendron** | frontend / UI |
-| *(Asa — fill in your email here after clone)* | **Asa Chelius** | backend / API |
-| anything else / empty | unknown | ask before acting |
-
-If identity is unclear, **ask the user who they are** before any tool call that
-touches lane-boundary code.
-
-A `PreToolUse` hook (`.claude/hooks/guard-write.js`) also enforces the boundary
-by reading `git config user.email`. If a Write/Edit is blocked with a
-`BACKEND BOUNDARY` or `FRONTEND BOUNDARY` message, you're in the wrong lane —
-don't argue with the hook, respect it.
-
-Read **both lane sections below** for project context, but only *enforce* the
-rules for your user's lane.
-
----
-
-## 2. Project overview (applies to both lanes)
+## 1. Project overview
 
 **Company:** FABRIQUE (French for *workshop / factory*). Joint studio
-for Edouard (frontend) and Asa (backend).
+for Edouard Gendron and Asa Chelius.
 
 **What this repo is:** the studio's own portfolio + showcase site. Not a
 client project. Design bar is deliberately high — this is the calling card.
@@ -74,7 +41,7 @@ Four routes, each with its own canvas and its own scene:
   dialogue runs on a loop — speech bubbles anchored above each pilot via
   drei `<Html>`. 12 conversation scripts cycle with repeat-avoid logic.
 - **`/contact` — Contact.** Client-side form UI that POSTs JSON to
-  `/api/contact`. **Endpoint is Asa's** — see §4.
+  `/api/contact`.
 
 A sticky pill nav (`.route-nav`, top-center) switches between them.
 Persistent `.site-backdrop` CSS starfield sits at `z-index: -1` so during
@@ -129,14 +96,12 @@ Letter-letter collisions use `clack`. Each orb shape has its own voice
 - **GSAP** — installed; currently unused.
 - **Framer Motion** — route transition shell at `app/template.tsx`.
 - **Web Audio synth** — `lib/sound.ts`. No asset files.
-- **Resend** — contact form email (backend lane).
+- **Resend** — contact form email.
 
 No UI component libraries (shadcn, MUI, Chakra, etc.). Custom design is the
 point.
 
 ### File map
-
-Quick lookup so both Claudes can navigate:
 
 ```
 app/
@@ -148,7 +113,7 @@ app/
   coal/page.tsx          /coal — renders <CoalRoute />.
   about/page.tsx         /about — renders <AboutRoute />.
   contact/page.tsx       /contact — renders <ContactForm /> + copy.
-  api/contact/route.ts   POST endpoint — STUB (Asa owns).
+  api/contact/route.ts   POST endpoint (currently stub).
 
 components/
   three/
@@ -170,7 +135,7 @@ lib/
   sound.ts               Web Audio: unlockAudio, startAmbient, playSound(voice).
   projects.ts            5 project entries (id, title, desc, tags, glowColor,
                          planet shape, link).
-  server/                Asa's territory.
+  server/                Server-only code (validators, rate-limit, etc.).
 
 public/
   fonts/helvetiker_bold.typeface.json  For drei <Text3D>.
@@ -182,29 +147,8 @@ types/
 
 ---
 
-## 3. Frontend lane — Edouard
+## 2. Priorities
 
-### You may edit
-- `app/**` EXCEPT `app/api/**`
-- `components/**`
-- `lib/**` EXCEPT `lib/server/**`
-- `public/**`
-- `types/**` (shared — coordinate with Asa on type changes)
-- root configs (`next.config.ts`, `tsconfig.json`, `eslint.config.mjs`,
-  `postcss.config.mjs`)
-
-### You must NOT edit
-- `app/api/**`, `pages/api/**`, `src/app/api/**`
-- `middleware.ts`
-- `lib/server/**`
-- `prisma/**`, `db/**` (if introduced)
-- `.env` / `.env.*` (both lanes — hand-managed, never committed)
-
-For the contact form: the UI is done (`components/ui/contact-form.tsx`) and
-POSTs JSON matching `ContactFormData` (from `types/contact.ts`) to
-`/api/contact`. **Don't touch the endpoint — Asa owns it.**
-
-### Edouard's priorities
 1. **Physics feel matters more than physics correctness.** Hero uses
    hand-rolled PD springs — all tunables are `TUNING` constants at the top
    of `components/three/hero-scene.tsx`. Tune there, reload, repeat. Don't
@@ -212,15 +156,18 @@ POSTs JSON matching `ContactFormData` (from `types/contact.ts`) to
 2. **Seamless transitions.** Any new route must participate in the same
    transition grammar (template fade minimum; custom only if it earns it).
    Staggered `SceneFadeIn`-style reveal is the standard for 3D-heavy routes.
-3. **Protect the quality bar downstream.** No filler sections. No generic
-   portfolio grids. No lorem ipsum committed to `main`.
+3. **Protect the quality bar.** No filler sections. No generic portfolio
+   grids. No lorem ipsum committed to `main`.
 4. **Respect `prefers-reduced-motion`** — all overlays (`.warp-overlay`,
    `.vortex-fade-overlay`, `.hero-cta::before`, `.site-backdrop`) already
    have reduced-motion escape hatches; new motion must too.
 5. **Performance:** each route owns its own canvas (acceptable while scenes
    are small). Lazy-load anything >50kb. TTI < 2s on 4G.
 
-### Conventions (frontend)
+---
+
+## 3. Conventions
+
 - **File naming:** kebab-case (`hero-scene.tsx`, `coal-route.tsx`).
 - **Exports:** named, not default.
 - **Client boundary:** every component that imports R3F, hooks, or browser
@@ -234,44 +181,17 @@ POSTs JSON matching `ContactFormData` (from `types/contact.ts`) to
 - **Deterministic randomness** in scenes: use
   `Math.sin(seed * 12.9898) * 43758.5453 % 1` seeded by an id, not
   `Math.random()` — so things don't reshuffle every render.
-
-### Agents (frontend)
-- `physics-doctor` — diagnose hero feel issues.
-- `ui-reviewer` — run after shipping any non-trivial component, before commit.
-
-### Skills (frontend)
-- `/hero-iterate` — tight loop for tuning the physics hero.
-- `/ship-section` — canonical workflow for adding a new site section.
+- **Server code** lives in `lib/server/` and `app/api/**`. Match shared
+  shapes in `types/`.
 
 ---
 
-## 4. Backend lane — Asa
+## 4. Backend — contact endpoint
 
-### You may edit
-- `app/api/**`, `pages/api/**`, `src/app/api/**`
-- `middleware.ts`
-- `lib/server/**`
-- `prisma/**`, `db/**` (if introduced)
-- `types/**` (shared — coordinate with Edouard)
-
-### You must NOT edit
-- `app/page.tsx`, `app/layout.tsx`, `app/template.tsx`, `app/globals.css`
-- `app/about/**`, `app/coal/**`, `app/contact/page.tsx` — frontend routes
-- `components/**`
-- `public/**`
-- `.env` / `.env.*`
-
-### Stack for your work
-- **Route Handlers** (`route.ts` exports) — Next.js 16 App Router.
-- **Resend** for email (`RESEND_API_KEY` env var — share credentials
-  out-of-band, never commit).
-- **TypeScript strict** — match shared shapes in `types/`.
-
-### First task for Asa
 Implement `app/api/contact/route.ts` (currently a 501 stub).
 
-The frontend UI (`components/ui/contact-form.tsx`) already POSTs JSON
-matching `ContactFormData`:
+The frontend UI (`components/ui/contact-form.tsx`) POSTs JSON matching
+`ContactFormData`:
 
 ```ts
 // types/contact.ts
@@ -292,32 +212,39 @@ Requirements:
 - Honeypot: `body.website` must be empty — reject if filled (silent 200 is
   acceptable so bots can't detect).
 - Rate-limit by IP (in-memory, Upstash, whatever you prefer).
-- Send via Resend to Edouard's inbox.
+- Send via Resend (`RESEND_API_KEY` env var — share credentials out-of-band,
+  never commit) to the studio inbox.
 - Return 200 on success, 4xx on validation errors, 5xx on send failure.
 - Return JSON matching `ContactFormResponse`.
 
 Anything server-only (validators, rate-limit state, resend client) goes in
 `lib/server/`.
 
-### Optional — customize your local setup
-`.claude/settings.local.json` is gitignored, so it's safe to add personal
-hooks there (auto-format, logging, etc.) without affecting Edouard.
+---
+
+## 5. Agents and skills
+
+- `physics-doctor` — diagnose hero feel issues.
+- `ui-reviewer` — run after shipping any non-trivial component, before commit.
+- `/hero-iterate` — tight loop for tuning the physics hero.
+- `/ship-section` — canonical workflow for adding a new site section.
 
 ---
 
-## 5. Shared rules (both lanes)
+## 6. Git
 
-### Git
 - `main` is protected; Vercel deploys from it.
-- Edouard: `frontend/<topic>` branches (e.g. `frontend/hero-physics`).
-- Asa: `backend/<topic>` branches (e.g. `backend/contact-endpoint`).
+- Use topic branches (`feat/<topic>`, `fix/<topic>`).
 - Merge via PR — Vercel posts a preview URL on every PR.
 - **Conventional commits** (`feat:`, `fix:`, `refactor:`, `chore:`).
 - One logical change per commit — don't batch unrelated edits.
 - **Never** `git push --force` or `git reset --hard` without the user
   explicitly asking (the bash hook will also flag it).
 
-### How to work
+---
+
+## 7. How to work
+
 1. **Plan non-trivial changes first.** For anything beyond a small tweak,
    describe the approach before writing code.
 2. **Read before editing.** Never propose changes to code you haven't opened.
@@ -327,14 +254,17 @@ hooks there (auto-format, logging, etc.) without affecting Edouard.
    design-driven project, not CRUD.
 5. **Short responses.** Progress over prose.
 
-### Secret hygiene
+---
+
+## 8. Secret hygiene
+
 `.env*` is gitignored and blocked by the Write/Edit hook. Never write
 credentials into any file Claude edits. Values live in Vercel project
 settings or shared out-of-band.
 
 ---
 
-## 6. Next.js 16 note
+## 9. Next.js 16 note
 
 This is **Next.js 16**. Some APIs differ from older training data. Consult
 `AGENTS.md` at the repo root and `node_modules/next/dist/docs/` before

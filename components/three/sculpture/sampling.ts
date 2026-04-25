@@ -41,11 +41,13 @@ export function sampleSignSilhouette(): SampledLayers {
   // ---- Frame canvas: rectangle minus letters ---------------------------
   const frameCanvas = makeCanvas(W, H);
   const fctx = getCtx(frameCanvas);
-  // Fill the plaque.
+  // Fill the plaque. frameYOffsetFrac shifts the plaque down so the
+  // bottom of the sign extends further below the NOS PROJETS button
+  // without lifting the top above the FABRIQUE letters.
   const fw = W * TUNING.frameWidthFrac;
   const fh = H * TUNING.frameHeightFrac;
   const fx = (W - fw) / 2;
-  const fy = (H - fh) / 2;
+  const fy = (H - fh) / 2 + H * TUNING.frameYOffsetFrac;
   fctx.fillStyle = "#000";
   fctx.fillRect(fx, fy, fw, fh);
   // Knock out the letter shapes, with extra padding so letters and plaque

@@ -31,8 +31,14 @@ export const TUNING = {
   // ---- Sign frame (rectangular plaque around the letters) -------------
   /** Fraction of sample-canvas width that the plaque occupies. */
   frameWidthFrac: 0.92,
-  /** Fraction of sample-canvas height that the plaque occupies. */
-  frameHeightFrac: 0.72,
+  /** Fraction of sample-canvas height that the plaque occupies. Bumped
+   *  so there's more material around the FABRIQUE letters and a more
+   *  substantial slab below the NOS PROJETS button. */
+  frameHeightFrac: 0.84,
+  /** Vertical offset (fraction of canvas height) added to the plaque's
+   *  centered y. Positive shifts the plaque downward — extends the
+   *  bottom of the sign without raising the top above FABRIQUE. */
+  frameYOffsetFrac: 0.05,
   /** How much extra padding (in pixels on the sample canvas) to knock out
    *  around each letter so the plaque doesn't kiss the glyph edges. A small
    *  breathing gap sells the "letters in front of a plaque" read. */
@@ -50,7 +56,16 @@ export const TUNING = {
   buttonHalfHeight: 0.19,
   /** Extra padding (world units) around the button knockout rectangle
    *  so the plaque leaves a clean breathing gap around the label. */
-  buttonKnockoutPadding: 0.14,
+  buttonKnockoutPadding: 0.18,
+
+  // ---- Water ripple (applied only to the mirror copy below the floor) ----
+  /** Per-shard displacement amplitude (world units) on the reflected
+   *  sculpture. Subtle — the user shouldn't see the wobble itself, just
+   *  feel it. */
+  waterRippleAmp: 0.045,
+  /** Base angular frequency of the ripple (rad/s). A second wave at
+   *  ~1.37x this frequency layers on top for natural-looking motion. */
+  waterRippleFreq: 0.62,
 
   // ---- Shard counts ---------------------------------------------------
   /** Shards forming the letters. Denser now for crisper silhouette edges. */
@@ -111,10 +126,12 @@ export const TUNING = {
   /** Plaque shard color — lighter, picks up more env reflection. */
   frameShardColor: "#b4b8be",
   metalness: 1.0,
-  roughness: 0.3,
+  /** Lower roughness = sharper, brighter specular highlights, so more
+   *  pieces visibly "glimmer" when their face catches the sun. */
+  roughness: 0.18,
   iridescence: 0.0,
   iridescenceIOR: 1.3,
-  envMapIntensity: 1.35,
+  envMapIntensity: 1.8,
 
   // ---- Background -----------------------------------------------------
   backgroundColor: "#faf8f3",
@@ -157,7 +174,11 @@ export const TUNING = {
    *  which shards start getting pushed). */
   cursorRadius: 1.1,
   /** Peak impulse magnitude at the cursor's exact position. Falls off to
-   *  zero at cursorRadius. */
+   *  zero at cursorRadius. Originally restored to 14 — cursor pushes
+   *  through the metal feel right; the "too aggressive" complaint was
+   *  about the OLD whole-sculpture cursor-drag which is now disabled
+   *  via globalPointerDragStrength dropping cursor delta in the
+   *  driver. */
   cursorStrength: 14,
   /** Pendulum-style stiffness: spring constant = pendulumGravity / wireLen.
    *  Longer wires feel more sluggish (correct pendulum behavior). Scaled
@@ -226,14 +247,17 @@ export const TUNING = {
   /** Per-frame lerp factor toward the target tilted position. Low = smooth
    *  follow, never a snap. */
   tiltLerp: 0.18,
-  /** Whole-sculpture inertia from pointer motion in empty space.
-   *  Disabled; project-card touch impact is still handled by cardImpulse*. */
-  globalPointerDragStrength: 0,
-  /** Cap per-frame whole-scene drag so fast mouse shakes stay controlled. */
-  globalPointerDragMax: 0,
-  /** Horizontal mouse motion also nudges depth a little so the response
-   *  feels dimensional instead of a flat XY slide. */
-  globalPointerDragZ: 0,
+  /** Whole-sculpture inertia from pointer motion in empty space + the
+   *  idle-wind impulses. Re-enabled so cursor drags AND wind gusts both
+   *  visibly push the metal pieces. */
+  globalPointerDragStrength: 0.9,
+  /** Cap per-frame whole-scene drag so fast mouse shakes / strong wind
+   *  pulses stay controlled. Keep tight or pieces get blown across the
+   *  screen. */
+  globalPointerDragMax: 0.18,
+  /** Horizontal motion also nudges depth a little so the response feels
+   *  dimensional instead of a flat XY slide. Sign alternates per-shard. */
+  globalPointerDragZ: 0.18,
 
   // ---- Showcase (NOS PROJETS open state) ------------------------------
   /** Base HSL hue (0-1) per card, driving the chameleon color flow. Red,
