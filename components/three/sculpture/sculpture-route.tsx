@@ -62,8 +62,19 @@ export function SculptureRoute() {
       });
       setDark(true);
     };
+    const forceLight = () => {
+      unlockAudio();
+      playSample(LIGHT_SWITCH_URL, 0.32, 0, undefined, {
+        reverbSend: 0.05,
+      });
+      setDark(false);
+    };
     window.addEventListener("sculpture-force-dark", forceDark);
-    return () => window.removeEventListener("sculpture-force-dark", forceDark);
+    window.addEventListener("sculpture-force-light", forceLight);
+    return () => {
+      window.removeEventListener("sculpture-force-dark", forceDark);
+      window.removeEventListener("sculpture-force-light", forceLight);
+    };
   }, []);
 
   return (

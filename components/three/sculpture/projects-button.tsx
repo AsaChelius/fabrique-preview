@@ -598,6 +598,8 @@ export function ProjectsButton() {
     unlockAudio();
     if (mode === "off" && typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("sculpture-force-dark"));
+    } else if (mode === "showcase" && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("sculpture-force-light"));
     }
     preloadSample(CYMBAL_URL);
     handleCymbalToggle();
