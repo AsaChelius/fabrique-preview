@@ -1099,6 +1099,7 @@ body {
    this class is on <body>. Toggled by the /title client wrapper. */
 body.sculpture-mode {
   background: #faf8f3;
+  overflow: clip;
   /* Native cursor hidden — <SculptureCursor /> renders a DOM ring that
      transitions on hover, which a `cursor: url(...)` swap can't do. */
   cursor: none;
@@ -1155,14 +1156,26 @@ body.sculpture-dark .sculpture-cursor.is-hover {
 }
 .sculpture-root {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  /* Slight overscan covers browser/WebGL rounding at the right/bottom edge. */
+  width: calc(100dvw + 3px);
+  height: calc(100dvh + 3px);
+  min-width: 100vw;
+  min-height: 100vh;
   background: #faf8f3;
   z-index: 1;
+  overflow: hidden;
+  contain: paint;
 }
 .sculpture-root > canvas,
 .sculpture-root > div {
   width: 100% !important;
   height: 100% !important;
+  min-width: 100%;
+  min-height: 100%;
   display: block;
 }
 
