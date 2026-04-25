@@ -32,7 +32,125 @@ import {
 import { TUNING } from "./tuning";
 import type { Placement } from "./placements";
 import { setCursorHover } from "./cursor-bus";
-import { playSound, unlockAudio } from "@/lib/sound";
+import {
+  playSound,
+  playSample,
+  preloadSample,
+  getSampleDuration,
+  unlockAudio,
+  type SampleHandle,
+} from "@/lib/sound";
+
+/** Reverse-cymbal swell that scores the NOS PROJETS morph. Trimmed
+ *  region: skip 0.3s of dead air at the start, play 11s of swell. When
+ *  the user clicks again mid-morph we stop the active playback and start
+ *  a reversed copy at the matching position so the audio rewinds.
+ *
+ *  Forward playback covers original[CYMBAL_START_OFFSET .. CYMBAL_START_OFFSET+CYMBAL_PLAY_LEN].
+ *  At elapsed time `e`, the playhead is at original time S+e.
+ *  Reversed buffer index for original time T is `bufDuration - T`.
+ *  So reversed-offset = bufDuration - (S + e); play for `e` seconds. */
+const CYMBAL_URL = "/sounds/" + encodeURIComponent("reversecymbal_[cut_5sec].mp3");
+// File is now manually trimmed to ~5s — no need to skip dead air or
+// truncate. Start at 0 and play the whole thing. The actual duration
+// is read into cymbalBufDuration on first preload and used for the
+// reverse-offset math.
+const CYMBAL_START_OFFSET = 0;
+const CYMBAL_PLAY_LEN = 5;
+const CYMBAL_VOLUME = 0.08;
+
+// Module-level state for the cymbal toggle. Lives outside the component
+// so click → click rapid-fire keeps a single active handle without
+// fighting React re-renders.
+let cymbalHandle: SampleHandle | null = null;
+// Wall-clock ms when the current direction's playback began.
+let cymbalStartedAt = 0;
+// Original-buffer time (seconds) of the playhead at `cymbalStartedAt`.
+// Forward starts at CYMBAL_START_OFFSET; mid-morph swaps anchor here so
+// elapsed math gives the correct continuous position.
+let cymbalAnchorOriginalT = 0;
+// True while playing the reversed buffer.
+let cymbalReversed = false;
+// Cached buffer duration (seconds). Filled lazily after first preload.
+let cymbalBufDuration: number | null = null;
+
+let cymbalAutoClearId: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleCymbalAutoClear(seconds: number) {
+  if (cymbalAutoClearId) clearTimeout(cymbalAutoClearId);
+  cymbalAutoClearId = setTimeout(() => {
+    cymbalHandle = null;
+    cymbalAutoClearId = null;
+  }, seconds * 1000 + 60);
+}
+
+/** Current original-buffer playhead time (seconds) for the active
+ *  playback, accounting for direction. Forward = anchor + elapsed,
+ *  reversed = anchor - elapsed. */
+function currentOriginalT(now: number): number {
+  const elapsed = (now - cymbalStartedAt) / 1000;
+  return cymbalReversed
+    ? cymbalAnchorOriginalT - elapsed
+    : cymbalAnchorOriginalT + elapsed;
+}
+
+function handleCymbalToggle() {
+  // Cache buffer duration on first interaction. Until it resolves we
+  // fall back to (CYMBAL_START_OFFSET + CYMBAL_PLAY_LEN) for the math —
+  // accurate when the file is exactly that long, close-enough otherwise.
+  if (cymbalBufDuration == null) {
+    getSampleDuration(CYMBAL_URL).then((d) => {
+      if (d != null) cymbalBufDuration = d;
+    });
+  }
+  const bufDuration = cymbalBufDuration ?? CYMBAL_START_OFFSET + CYMBAL_PLAY_LEN;
+
+  const now = performance.now();
+
+  if (cymbalHandle) {
+    // Mid-morph click: figure out where the playhead is in original-
+    // buffer time, then start the OPPOSITE direction at that exact spot.
+    const playheadT = Math.max(
+      CYMBAL_START_OFFSET,
+      Math.min(CYMBAL_START_OFFSET + CYMBAL_PLAY_LEN, currentOriginalT(now)),
+    );
+    cymbalHandle.stop(40);
+
+    cymbalReversed = !cymbalReversed;
+    let offset: number;
+    let durationToPlay: number;
+    if (cymbalReversed) {
+      // Reversed buffer index for original time T is (bufDuration - T).
+      // Play backwards from playheadT down to CYMBAL_START_OFFSET.
+      offset = bufDuration - playheadT;
+      durationToPlay = playheadT - CYMBAL_START_OFFSET;
+    } else {
+      // Forward from playheadT up to the end of the trimmed region.
+      offset = playheadT;
+      durationToPlay = CYMBAL_START_OFFSET + CYMBAL_PLAY_LEN - playheadT;
+    }
+    cymbalHandle = playSample(CYMBAL_URL, CYMBAL_VOLUME, offset, durationToPlay, {
+      reversed: cymbalReversed,
+    });
+    cymbalAnchorOriginalT = playheadT;
+    cymbalStartedAt = now;
+    scheduleCymbalAutoClear(durationToPlay);
+    return;
+  }
+
+  // Fresh click — opening the showcase. Forward from CYMBAL_START_OFFSET.
+  cymbalReversed = false;
+  cymbalAnchorOriginalT = CYMBAL_START_OFFSET;
+  cymbalStartedAt = now;
+  cymbalHandle = playSample(
+    CYMBAL_URL,
+    CYMBAL_VOLUME,
+    CYMBAL_START_OFFSET,
+    CYMBAL_PLAY_LEN,
+    { reversed: false },
+  );
+  scheduleCymbalAutoClear(CYMBAL_PLAY_LEN);
+}
 
 // ---- Button-local tuning -------------------------------------------------
 const BUTTON = {
@@ -391,13 +509,8 @@ export function ProjectsButton() {
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     unlockAudio();
-    // Opening the showcase (text → arrow morph) = rising chime.
-    // Back-arrow click (arrow → text) = softer descending ding.
-    if (isShowcaseActive()) {
-      playSound("orb-pop", 0.55);
-    } else {
-      playSound("ding", 0.45);
-    }
+    preloadSample(CYMBAL_URL);
+    handleCymbalToggle();
     toggleShowcase();
   };
 

@@ -113,6 +113,23 @@ export function unlockAudio() {
 
 const sampleCache = new Map<string, AudioBuffer>();
 const samplePending = new Map<string, Promise<AudioBuffer | null>>();
+// Reversed copies are built on demand and cached separately. Built once,
+// reused forever — reversal is just an in-place per-channel copy.
+const reverseCache = new Map<string, AudioBuffer>();
+
+function getReversedBuffer(c: AudioContext, src: AudioBuffer, key: string): AudioBuffer {
+  const cached = reverseCache.get(key);
+  if (cached) return cached;
+  const out = c.createBuffer(src.numberOfChannels, src.length, src.sampleRate);
+  for (let ch = 0; ch < src.numberOfChannels; ch++) {
+    const inData = src.getChannelData(ch);
+    const outData = out.getChannelData(ch);
+    const n = inData.length;
+    for (let i = 0; i < n; i++) outData[i] = inData[n - 1 - i];
+  }
+  reverseCache.set(key, out);
+  return out;
+}
 
 async function loadSample(url: string): Promise<AudioBuffer | null> {
   const c = ensureContext();
@@ -149,6 +166,14 @@ export type SampleHandle = {
   setVolume: (target: number, fadeMs?: number) => void;
 };
 
+type PlaySampleOptions = {
+  /** 0..1 amount sent to the shared reverb bus. */
+  reverbSend?: number;
+  /** Play the buffer reversed. Duration param still applies (measured
+   *  from the reversed start). Useful for "rewind" interrupts. */
+  reversed?: boolean;
+};
+
 /**
  * Play a sample file from /public. Fire-and-forget by default.
  *
@@ -156,17 +181,20 @@ export type SampleHandle = {
  * @param volume       0..1.
  * @param offset       Seconds to skip at the start.
  * @param duration     Optional max seconds to play.
- * @param reverbSend   0..1, amount sent to the shared reverb bus. >0 makes
- *                     the sample linger with a ~3.6s tail. Stack across
- *                     multiple plays for a wash.
+ * @param opts         Reverb send + reversed-playback options.
  */
 export function playSample(
   url: string,
   volume = 1,
   offset = 0,
   duration?: number,
-  reverbSend = 0,
+  opts: PlaySampleOptions | number = {},
 ): SampleHandle {
+  // Backwards-compat: a 5th-arg number is treated as reverbSend.
+  const options: PlaySampleOptions =
+    typeof opts === "number" ? { reverbSend: opts } : opts;
+  const reverbSend = options.reverbSend ?? 0;
+  const reversed = options.reversed ?? false;
   const c = ensureContext();
   // Even if context isn't ready, return a no-op handle so callers don't
   // have to null-check.
@@ -180,7 +208,7 @@ export function playSample(
   loadSample(url).then((buf) => {
     if (stopped || !buf || !c || !masterGain) return;
     src = c.createBufferSource();
-    src.buffer = buf;
+    src.buffer = reversed ? getReversedBuffer(c, buf, url) : buf;
     g = c.createGain();
     g.gain.value = volume;
     src.connect(g).connect(masterGain);
@@ -244,6 +272,14 @@ export function playSample(
 /** Optional: warm the cache so the first playback has no fetch latency. */
 export function preloadSample(url: string): void {
   loadSample(url);
+}
+
+/** Returns the buffer's duration (seconds) once it's loaded. Resolves to
+ *  null if the asset can't be loaded. Useful for reverse-playback math
+ *  that needs to know the true length of the file. */
+export async function getSampleDuration(url: string): Promise<number | null> {
+  const buf = await loadSample(url);
+  return buf ? buf.duration : null;
 }
 
 /**
