@@ -218,26 +218,22 @@ export const TUNING = {
 
   // ---- Idle mouse parallax -------------------------------------------
   /** Peak camera X offset (world units) when mouse is at the horizontal edge.
-   *  Cranked past the original "preserve anamorphic illusion" limit —
-   *  the card volumes have real Z depth now, so the 3D read benefits
-   *  from a more pronounced parallax. FABRIQUE still resolves near
-   *  the sweet-spot; the illusion just softens at the edges, which is
-   *  worth it for the extra dimensionality on the cards. */
-  tiltAmountX: 0.2,
+   *  Disabled for now: the title should stay locked unless the cursor is
+   *  directly touching project boxes. */
+  tiltAmountX: 0,
   /** Peak camera Y offset (world units) when mouse is at the vertical edge. */
-  tiltAmountY: 0.12,
+  tiltAmountY: 0,
   /** Per-frame lerp factor toward the target tilted position. Low = smooth
    *  follow, never a snap. */
   tiltLerp: 0.18,
-  /** Subtle whole-sculpture inertia from pointer motion, even when the
-   *  cursor is over empty space. Gives the parallax tilt a rubber-band
-   *  feel because shards drag slightly behind mouse movement, then settle. */
-  globalPointerDragStrength: 0.32,
+  /** Whole-sculpture inertia from pointer motion in empty space.
+   *  Disabled; project-card touch impact is still handled by cardImpulse*. */
+  globalPointerDragStrength: 0,
   /** Cap per-frame whole-scene drag so fast mouse shakes stay controlled. */
-  globalPointerDragMax: 0.016,
+  globalPointerDragMax: 0,
   /** Horizontal mouse motion also nudges depth a little so the response
    *  feels dimensional instead of a flat XY slide. */
-  globalPointerDragZ: 0.1,
+  globalPointerDragZ: 0,
 
   // ---- Showcase (NOS PROJETS open state) ------------------------------
   /** Base HSL hue (0-1) per card, driving the chameleon color flow. Red,

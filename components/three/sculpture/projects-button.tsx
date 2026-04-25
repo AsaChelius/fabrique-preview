@@ -219,18 +219,16 @@ const BUTTON = {
 
   // ---- 3D tilt (pointer-driven rotation) ----
   /** Max rotation around Y when pointer is at horizontal edge (radians).
-   *  ~0.2 rad ≈ 11° — pronounced enough to read as a real 3D swing
-   *  without flipping the label off-axis. */
-  tiltMaxRotY: 0.22,
+   *  Disabled with the rest of the global 3D tilt. */
+  tiltMaxRotY: 0,
   /** Max rotation around X when pointer is at vertical edge (radians). */
-  tiltMaxRotX: 0.14,
+  tiltMaxRotX: 0,
   /** Per-frame lerp toward the target rotation — matches the scene's
    *  tiltLerp character so button + camera parallax move together. */
   tiltLerp: 0.12,
-  /** Whole-button translation from the same empty-space pointer motion
-   *  that drags the sculpture shards. Slightly stronger than individual
-   *  shard drag because this is one coherent control. */
-  dragScale: 1.18,
+  /** Whole-button translation from empty-space pointer motion.
+   *  Disabled; project-card touch impact stays separate. */
+  dragScale: 0,
   /** Spring/damping for the button's rubber-band return to rest. */
   dragSpring: 30,
   dragDamping: 8.5,
