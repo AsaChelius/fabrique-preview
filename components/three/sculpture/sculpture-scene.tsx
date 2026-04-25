@@ -242,7 +242,7 @@ function CardHitPlane({
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     unlockAudio();
-    playSample(SELECT_CHIME_URL, 0.26, 0, undefined, { reverbSend: 0.015 });
+    playSample(SELECT_CHIME_URL, 0.34, 0, undefined, { reverbSend: 0.025 });
     expandCard(idx);
   };
   return (
