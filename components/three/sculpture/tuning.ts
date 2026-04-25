@@ -256,7 +256,7 @@ export const TUNING = {
    *  fade-out when it closes. ~0.08 ≈ 300ms to 90%. Should feel roughly
    *  in step with the shard physics morph. Also drives the wind
    *  fade-in below — one factor governs all showcase-specific effects. */
-  showcaseColorLerp: 0.08,
+  showcaseColorLerp: 0.04,
 
   /** Idle wind pushing each shard around while inside a card. Each shard
    *  has its own phase per axis so the cloud reads as turbulent rather
