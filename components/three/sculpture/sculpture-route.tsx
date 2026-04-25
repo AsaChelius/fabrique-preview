@@ -18,9 +18,9 @@ import { triggerReveal } from "./reveal-bus";
 import { RouteTransition } from "./route-transition";
 import { setShowcase } from "./showcase-bus";
 import { attachSculptureAmbient } from "./sculpture-ambient";
-import { playSound, playSample, unlockAudio } from "@/lib/sound";
+import { SOUND_ASSETS, playSample, unlockAudio } from "@/lib/sound";
 
-const LIGHT_SWITCH_URL = "/sounds/lightswitch.mp3";
+const LIGHT_SWITCH_URL = SOUND_ASSETS.lightToggle;
 
 const pillStyle = {
   position: "fixed" as const,
@@ -63,8 +63,9 @@ export function SculptureRoute() {
         type="button"
         onClick={() => {
           unlockAudio();
-          // Soft whoosh that lands as the camera begins its pan.
-          playSound("whoosh", 0.5);
+          playSample(SOUND_ASSETS.routeSwell, 0.28, 0, undefined, {
+            reverbSend: 0.18,
+          });
           triggerReveal();
         }}
         aria-label="Replay reveal animation"
@@ -76,9 +77,10 @@ export function SculptureRoute() {
         type="button"
         onClick={() => {
           unlockAudio();
-          // Real light-switch click — replaces the synth `flicker` voice
-          // since this is the more literal sell of "lights just changed".
-          playSample(LIGHT_SWITCH_URL, 0.7);
+          // Relay-style click for the gallery lighting change.
+          playSample(LIGHT_SWITCH_URL, 0.56, 0, undefined, {
+            reverbSend: 0.08,
+          });
           setDark((d) => !d);
         }}
         aria-label="Toggle dark mode"

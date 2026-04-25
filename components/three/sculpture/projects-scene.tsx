@@ -12,13 +12,20 @@
  * can layer in sway + cursor push later if needed.
  */
 
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Environment, MeshReflectorMaterial } from "@react-three/drei";
-import { Suspense, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PerspectiveCamera as PerspectiveCameraImpl } from "three";
 import * as THREE from "three";
 import { TUNING } from "./tuning";
 import type { Placement } from "./placements";
+import { setCursorHover } from "./cursor-bus";
+import {
+  SOUND_ASSETS,
+  playSample,
+  preloadSample,
+  unlockAudio,
+} from "@/lib/sound";
 
 export function ProjectsScene() {
   return (
@@ -59,6 +66,7 @@ export function ProjectsScene() {
 
         <ResponsiveCirclesCamera />
         <CirclesCloud />
+        <CircleHitTargets />
         <ReflectiveFloor />
       </Suspense>
     </Canvas>
@@ -232,6 +240,91 @@ function CirclesCloud() {
       />
     </group>
   );
+}
+
+// -----------------------------------------------------------------------
+
+function CircleHitTargets() {
+  const [hovered, setHovered] = useState<number | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
+  const centers = useMemo(() => circleWorldCenters(), []);
+  const radius = circleWorldRadius();
+
+  useEffect(() => {
+    preloadSample(SOUND_ASSETS.ringHover);
+    preloadSample(SOUND_ASSETS.ringSelect);
+    return () => {
+      setCursorHover(false);
+      if (document.body.style.cursor === "pointer") {
+        document.body.style.cursor = "";
+      }
+    };
+  }, []);
+
+  return (
+    <>
+      {centers.map((x, idx) => {
+        const active = hovered === idx || selected === idx;
+        return (
+          <group key={idx} position={[x, 0, 0.07]}>
+            <mesh>
+              <ringGeometry args={[radius - 0.09, radius + 0.09, 96]} />
+              <meshBasicMaterial
+                color={selected === idx ? "#20242c" : "#4f5663"}
+                transparent
+                opacity={active ? 0.22 : 0}
+                depthWrite={false}
+              />
+            </mesh>
+            <mesh
+              onPointerOver={(e: ThreeEvent<PointerEvent>) => {
+                e.stopPropagation();
+                setHovered(idx);
+                setCursorHover(true);
+                document.body.style.cursor = "pointer";
+                playSample(SOUND_ASSETS.ringHover, 0.28, 0, undefined, {
+                  reverbSend: 0.14,
+                });
+              }}
+              onPointerOut={(e: ThreeEvent<PointerEvent>) => {
+                e.stopPropagation();
+                setHovered(null);
+                setCursorHover(false);
+                if (document.body.style.cursor === "pointer") {
+                  document.body.style.cursor = "";
+                }
+              }}
+              onClick={(e: ThreeEvent<MouseEvent>) => {
+                e.stopPropagation();
+                unlockAudio();
+                setSelected(idx);
+                playSample(SOUND_ASSETS.ringSelect, 0.42, 0, undefined, {
+                  reverbSend: 0.26,
+                });
+              }}
+              visible={false}
+            >
+              <circleGeometry args={[radius + 0.26, 64]} />
+              <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+            </mesh>
+          </group>
+        );
+      })}
+    </>
+  );
+}
+
+function circleWorldCenters(): number[] {
+  const radiusPx = CIRCLES.sampleHeight * 0.36;
+  const gapPx = radiusPx * 2.2;
+  return [-gapPx, 0, gapPx].map((dx) => {
+    const nx = (dx / CIRCLES.sampleWidth) * 2;
+    return nx * CIRCLES.worldHalfWidth;
+  });
+}
+
+function circleWorldRadius(): number {
+  return 0.36 * 2 * CIRCLES.worldHalfHeight;
 }
 
 // -----------------------------------------------------------------------

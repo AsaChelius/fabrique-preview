@@ -3,7 +3,13 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { unlockAudio, startAmbient } from "@/lib/sound";
+import {
+  SOUND_ASSETS,
+  playSample,
+  preloadSample,
+  startAmbient,
+  unlockAudio,
+} from "@/lib/sound";
 
 const ROUTES = [
   { href: "/", label: "Studio" },
@@ -21,6 +27,7 @@ export function RouteNav() {
   useEffect(() => {
     const unlock = () => {
       unlockAudio();
+      preloadSample(SOUND_ASSETS.routeSwell);
       // Small delay to let the context resume before we start oscillators.
       window.setTimeout(() => startAmbient(), 50);
     };
@@ -40,6 +47,12 @@ export function RouteNav() {
           href={r.href}
           className={pathname === r.href ? "active" : ""}
           onClick={(e) => {
+            if (pathname !== r.href) {
+              unlockAudio();
+              playSample(SOUND_ASSETS.routeSwell, 0.2, 0, undefined, {
+                reverbSend: 0.1,
+              });
+            }
             // Special case: Studio → Work is a zoom-into-the-black-hole
             // cinematic. Intercept, fire vortex-zoom so the hero camera
             // dives into the singularity + VortexFadeOverlay fades black,

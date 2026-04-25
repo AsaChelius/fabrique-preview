@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Windchime motion layer — plays /sounds/windchimesmovement.mp3 in soft
+ * Windchime motion layer — plays generated shard chimes in soft
  * overlapping bursts as the cursor sweeps through the metal shards.
  *
  * Gating:
@@ -17,17 +17,17 @@
  */
 
 import { useEffect } from "react";
-import { playSample, preloadSample, type SampleHandle } from "@/lib/sound";
+import {
+  SOUND_ASSETS,
+  playSample,
+  preloadSample,
+  type SampleHandle,
+} from "@/lib/sound";
 
 /**
- * Pool of chime samples — using the user-edited mp3cut.net versions
- * (already trimmed to a single strike each). Random selection per hit.
+ * Pool of generated chime samples. Random selection per hit.
  */
-const CHIME_CLIPS = [
-  "/sounds/" + encodeURIComponent("chime2 (mp3cut.net).mp3"),
-  "/sounds/" + encodeURIComponent("chime3 (mp3cut.net).mp3"),
-  "/sounds/" + encodeURIComponent("chim4 (mp3cut.net).mp3"),
-];
+const CHIME_CLIPS = SOUND_ASSETS.shardChimes;
 
 // Min ms between chime triggers. Clips are ~1s max, so a short cooldown
 // keeps the shimmer responsive without stacking — the layer-ducking
@@ -42,11 +42,11 @@ const VELOCITY_THRESHOLD = 0.05;
 // Pointer speed at which we hit max volume.
 const VELOCITY_FOR_MAX_VOL = 3.0;
 
-const MAX_VOLUME = 0.5;
+const MAX_VOLUME = 0.34;
 
 export function WindchimeMotion() {
   useEffect(() => {
-    // Warm all four chime samples so the first random pick is instant.
+    // Warm the chime samples so the first random pick is instant.
     for (const url of CHIME_CLIPS) preloadSample(url);
 
     let lastX = -1;
@@ -104,10 +104,12 @@ export function WindchimeMotion() {
       let idx = Math.floor(Math.random() * (CHIME_CLIPS.length - 1));
       if (idx >= lastClipIdx) idx++;
       lastClipIdx = idx;
-      // reverbSend = 0.55 sends a healthy parallel signal to the shared
+      // reverbSend = 0.48 sends a healthy parallel signal to the shared
       // convolver bus → ~3.6s reverb tail per hit. Stacks across rapid
       // strikes into a continuous shimmer wash.
-      const fresh = playSample(CHIME_CLIPS[idx], vol, 0, undefined, 0.55);
+      const fresh = playSample(CHIME_CLIPS[idx], vol, 0, undefined, {
+        reverbSend: 0.48,
+      });
       layers.push(fresh);
       // Drop the oldest if we've exceeded the cap so the array doesn't
       // grow unbounded; let it tail out naturally rather than stop().

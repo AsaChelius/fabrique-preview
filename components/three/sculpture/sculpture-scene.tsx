@@ -15,7 +15,7 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
 import { Environment, MeshReflectorMaterial } from "@react-three/drei";
-import { Suspense, useEffect, useMemo, useRef, useState, type Ref } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { PerspectiveCamera as PerspectiveCameraImpl } from "three";
 import { SuspendedCloud } from "./suspended-cloud";
@@ -25,12 +25,16 @@ import { useSculpturePalette, type SculpturePalette } from "./palette";
 import { TUNING } from "./tuning";
 import { onReveal } from "./reveal-bus";
 import { setCursorHover, resetCursorHover } from "./cursor-bus";
-import { playSound, playSample, preloadSample, unlockAudio } from "@/lib/sound";
+import {
+  SOUND_ASSETS,
+  playSample,
+  preloadSample,
+  unlockAudio,
+} from "@/lib/sound";
 
-/** Sample dropped in /public/sounds/. URL-encoded once because the filename
- *  contains spaces. Played on card-select; preloaded on first hover so the
- *  click is latency-free. */
-const SELECT_CHIME_URL = "/sounds/" + encodeURIComponent("chime for select box.mp3");
+/** Generated gallery accents used for project-card hover/select. */
+const SELECT_CHIME_URL = SOUND_ASSETS.gallerySelect;
+const HOVER_TICK_URL = SOUND_ASSETS.galleryHover;
 import { SHOWCASE_LAYOUT } from "./showcase-targets";
 import {
   collapseExpanded,
@@ -43,6 +47,10 @@ import {
 
 export function SculptureScene() {
   const palette = useSculpturePalette();
+  useEffect(() => {
+    preloadSample(SELECT_CHIME_URL);
+    preloadSample(HOVER_TICK_URL);
+  }, []);
   return (
     <Canvas
       dpr={[1, 2]}
@@ -220,8 +228,7 @@ function CardHitPlane({
     setHoveredCard(idx);
     document.body.style.cursor = "pointer";
     setCursorHover(true);
-    // Quiet pop as the cursor lands on a selectable card.
-    playSound("orb-pop", 0.105);
+    playSample(HOVER_TICK_URL, 0.18, 0, undefined, { reverbSend: 0.08 });
     // Warm the chime cache on first hover so the click sound fires
     // instantly with no fetch/decode delay.
     preloadSample(SELECT_CHIME_URL);
@@ -235,9 +242,7 @@ function CardHitPlane({
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     unlockAudio();
-    // Trim 0.2s off the start — kills the soft pre-attack so the chime
-    // hits crisply on click.
-    playSample(SELECT_CHIME_URL, 0.85, 0.2);
+    playSample(SELECT_CHIME_URL, 0.46, 0, undefined, { reverbSend: 0.22 });
     expandCard(idx);
   };
   return (
@@ -460,7 +465,10 @@ function ReflectiveFloor({ palette }: { palette: SculpturePalette }) {
       {reflective ? (
         <MeshReflectorMaterial
           key={matKey}
-          ref={matRef as unknown as Ref<THREE.Material>}
+          ref={(m) => {
+            matRef.current =
+              (m as unknown as THREE.Material & { color: THREE.Color }) ?? null;
+          }}
           color={initialColor}
           mirror={palette.floorMirror}
           blur={[palette.floorReflectBlur, palette.floorReflectBlur / 3]}
@@ -484,7 +492,10 @@ function ReflectiveFloor({ palette }: { palette: SculpturePalette }) {
         // shard reflections punching through at ~32% brightness.
         <meshBasicMaterial
           key={matKey}
-          ref={matRef as unknown as Ref<THREE.Material>}
+          ref={(m) => {
+            matRef.current =
+              (m as THREE.Material & { color: THREE.Color }) ?? null;
+          }}
           color={initialColor}
           transparent
           opacity={0.68}

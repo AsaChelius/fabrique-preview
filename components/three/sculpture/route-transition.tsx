@@ -21,6 +21,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TUNING } from "./tuning";
+import { SOUND_ASSETS, playSample } from "@/lib/sound";
 
 type Listener = (url: string) => void;
 const listeners = new Set<Listener>();
@@ -47,6 +48,9 @@ export function RouteTransition() {
     const fn: Listener = (url) => {
       if (navigatingRef.current) return;
       navigatingRef.current = true;
+      playSample(SOUND_ASSETS.routeSwell, 0.32, 0, undefined, {
+        reverbSend: 0.18,
+      });
       setOpacity(1);
       window.setTimeout(() => {
         router.push(url);

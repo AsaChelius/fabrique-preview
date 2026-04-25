@@ -23,9 +23,9 @@ const AMBIENT_URL = "/sounds/ambiencesoundnew.mp3";
 const ALARM_URL = "/sounds/alarmtest.mp3";
 
 // Bed level (the new ambiencesoundnew.mp3) — sits underneath everything.
-const AMBIENT_VOLUME = 0.18;
+const AMBIENT_VOLUME = 0.14;
 // Alarm layered on top.
-const ALARM_VOLUME = 0.12;
+const ALARM_VOLUME = 0.075;
 
 // Tiny grace window: if a sculpture route unmounts and another mounts
 // within this many ms (i.e. /title → /projects), we don't actually stop

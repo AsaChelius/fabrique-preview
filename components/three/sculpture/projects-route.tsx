@@ -18,7 +18,7 @@ import { ProjectsScene } from "./projects-scene";
 import { SculptureCursor } from "./sculpture-cursor";
 import { RouteTransition, navigateWithFade } from "./route-transition";
 import { attachSculptureAmbient } from "./sculpture-ambient";
-import { playSound, unlockAudio } from "@/lib/sound";
+import { unlockAudio } from "@/lib/sound";
 
 export function ProjectsRoute() {
   useEffect(() => {
@@ -39,9 +39,6 @@ export function ProjectsRoute() {
         type="button"
         onClick={() => {
           unlockAudio();
-          // Same whoosh as /title's Replay — back-to-title kicks the
-          // reveal pan, so the audio cue matches the Replay action.
-          playSound("whoosh", 0.5);
           navigateWithFade("/title");
         }}
         aria-label="Back to title with reveal animation"

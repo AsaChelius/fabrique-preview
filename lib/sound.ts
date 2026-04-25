@@ -1,9 +1,8 @@
 /**
  * FABRIQUE sound system.
  *
- * We synth short SFX via the Web Audio API — no asset files to ship, no
- * Howler needed for these tiny clack / whoosh / ding sounds. If we later
- * want music or longer samples, swap in Howler here and keep the API shape.
+ * Short interaction voices are synthesized with Web Audio; richer gallery
+ * accents use generated sample assets in /public/sounds.
  *
  * API: `playSound(name, volume?)` — volume 0..1.
  *
@@ -16,6 +15,11 @@ export type SoundName =
   | "whoosh"
   | "ding"
   | "thud"
+  | "gallery-hover"
+  | "gallery-select"
+  | "gallery-reveal"
+  | "ring-hover"
+  | "ring-select"
   // One per orb shape — each picks a distinct synth voice.
   | "orb-pop"     // sphere: soft rising-to-low sine pop
   | "orb-knock"   // cube: wooden-ish filtered noise + thump
@@ -47,6 +51,20 @@ let unlocked = false;
 let reverbConvolver: ConvolverNode | null = null;
 let reverbWetIn: GainNode | null = null;
 
+export const SOUND_ASSETS = {
+  galleryHover: "/sounds/fabrique-gallery-hover.wav",
+  gallerySelect: "/sounds/fabrique-gallery-select.wav",
+  routeSwell: "/sounds/fabrique-route-swell.wav",
+  ringHover: "/sounds/fabrique-ring-hover.wav",
+  ringSelect: "/sounds/fabrique-ring-select.wav",
+  lightToggle: "/sounds/fabrique-light-toggle.wav",
+  shardChimes: [
+    "/sounds/fabrique-shard-chime-a.wav",
+    "/sounds/fabrique-shard-chime-b.wav",
+    "/sounds/fabrique-shard-chime-c.wav",
+  ],
+} as const;
+
 function ensureContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
   if (!ctx) {
@@ -56,7 +74,7 @@ function ensureContext(): AudioContext | null {
     if (!AC) return null;
     ctx = new AC();
     masterGain = ctx.createGain();
-    masterGain.gain.value = 0.45;
+    masterGain.gain.value = 0.42;
     masterGain.connect(ctx.destination);
   }
   return ctx;
@@ -301,7 +319,7 @@ export function playSampleLoop(
   tameTransients = false,
 ): SampleHandle {
   const c = ensureContext();
-  const noop: SampleHandle = { stop: () => {} };
+  const noop: SampleHandle = { stop: () => {}, setVolume: () => {} };
   if (!c || !masterGain) return noop;
 
   let stopped = false;
@@ -350,6 +368,17 @@ export function playSampleLoop(
         src.stop(end + 0.05);
       } catch {
         // Already stopped.
+      }
+    },
+    setVolume: (target: number, fadeMs = 200) => {
+      if (!c || !g) return;
+      const now = c.currentTime;
+      try {
+        g.gain.cancelScheduledValues(now);
+        g.gain.setValueAtTime(g.gain.value, now);
+        g.gain.linearRampToValueAtTime(Math.max(0.0001, target), now + fadeMs / 1000);
+      } catch {
+        // Buffer not ready yet.
       }
     },
   };
@@ -465,7 +494,7 @@ export function startAmbient() {
   // Fade in smoothly.
   const now0 = c.currentTime;
   bed.gain.setValueAtTime(0, now0);
-  bed.gain.linearRampToValueAtTime(0.065, now0 + 2.0);
+  bed.gain.linearRampToValueAtTime(0.045, now0 + 2.0);
 
   // --- Occasional chimes — A minor pentatonic (A, C, D, E, G) at octaves 5–6.
   const CHIME_BASE_FREQS = [
@@ -478,11 +507,11 @@ export function startAmbient() {
     1046.5,   // C6
   ];
   const chimeBus = c.createGain();
-  chimeBus.gain.value = 0.045;
+  chimeBus.gain.value = 0.018;
   chimeBus.connect(masterGain);
   let chimeTimer: number | null = null;
   const scheduleChime = () => {
-    const wait = 9000 + Math.random() * 8000; // 9–17s
+    const wait = 18000 + Math.random() * 24000;
     chimeTimer = window.setTimeout(() => {
       const f = CHIME_BASE_FREQS[Math.floor(Math.random() * CHIME_BASE_FREQS.length)];
       const detune = 1 + (Math.random() - 0.5) * 0.002;
@@ -556,40 +585,37 @@ export function startLoop(name: "contact-crt-hum"): LoopHandle | null {
   if (!c || !masterGain) return null;
   if (loops[name]) return loops[name];
   if (name === "contact-crt-hum") {
-    // Electrical BUZZ — sawtooth at 120 Hz (rectified mains harmonic)
-    // through a narrow bandpass in the 400–800 Hz zone to focus the
-    // buzz register. AM tremolo at 60 Hz gives it the classic
-    // transformer/fluorescent-ballast "bzzzzzt" character instead of
-    // the cinematic drone feel.
+    // Close-range CRT coil tone: present near the monitor, but less
+    // fluorescent-ballast harsh than the old buzz.
     const bus = c.createGain();
     bus.gain.value = 0;
     bus.connect(masterGain);
-    // Main sawtooth buzz
+
     const saw = c.createOscillator();
-    saw.type = "sawtooth";
-    saw.frequency.value = 120;
+    saw.type = "triangle";
+    saw.frequency.value = 118;
     const bp = c.createBiquadFilter();
     bp.type = "bandpass";
-    bp.frequency.value = 600;
-    bp.Q.value = 2.5;
+    bp.frequency.value = 420;
+    bp.Q.value = 1.4;
     const sg = c.createGain();
-    sg.gain.value = 0.35;
+    sg.gain.value = 0.18;
     saw.connect(bp).connect(sg).connect(bus);
     saw.start();
-    // AM tremolo — LFO modulating the sawtooth's gain so it "buzzes"
+
     const trem = c.createOscillator();
     trem.type = "sine";
-    trem.frequency.value = 60;
+    trem.frequency.value = 29.97;
     const tremGain = c.createGain();
-    tremGain.gain.value = 0.4; // depth
+    tremGain.gain.value = 0.08;
     trem.connect(tremGain).connect(sg.gain);
     trem.start();
-    // Small 60 Hz body — just to give it some pitched weight, no sub
+
     const body = c.createOscillator();
     body.type = "sine";
-    body.frequency.value = 60;
+    body.frequency.value = 59.94;
     const bodyG = c.createGain();
-    bodyG.gain.value = 0.12;
+    bodyG.gain.value = 0.07;
     body.connect(bodyG).connect(bus);
     body.start();
     const handle: LoopHandle = {
@@ -666,20 +692,23 @@ export function playSound(name: SoundName, volume = 1) {
     }
     case "whoosh": {
       // Filtered noise sweep — cursor click "push".
-      const dur = 0.28;
+      const dur = 0.34;
       const noise = c.createBuffer(1, c.sampleRate * dur, c.sampleRate);
       const data = noise.getChannelData(0);
-      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      for (let i = 0; i < data.length; i++) {
+        const t = i / data.length;
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 0.8);
+      }
       const src = c.createBufferSource();
       src.buffer = noise;
       const bp = c.createBiquadFilter();
       bp.type = "bandpass";
-      bp.Q.value = 1.4;
-      bp.frequency.setValueAtTime(400, now);
-      bp.frequency.exponentialRampToValueAtTime(1600, now + dur);
+      bp.Q.value = 0.9;
+      bp.frequency.setValueAtTime(260, now);
+      bp.frequency.exponentialRampToValueAtTime(1100, now + dur);
       const g = c.createGain();
       g.gain.setValueAtTime(0, now);
-      g.gain.linearRampToValueAtTime(v * 0.4, now + 0.02);
+      g.gain.linearRampToValueAtTime(v * 0.24, now + 0.035);
       g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
       src.connect(bp).connect(g).connect(masterGain);
       src.start(now);
@@ -687,15 +716,23 @@ export function playSound(name: SoundName, volume = 1) {
       break;
     }
     case "ding": {
-      const osc = c.createOscillator();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(880, now);
-      const g = c.createGain();
-      g.gain.setValueAtTime(v * 0.25, now);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
-      osc.connect(g).connect(masterGain);
-      osc.start(now);
-      osc.stop(now + 0.5);
+      const freqs: Array<[number, number, number]> = [
+        [660, 0.14, 0],
+        [990, 0.09, 0.035],
+      ];
+      for (const [f, amp, delay] of freqs) {
+        const start = now + delay;
+        const osc = c.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = f;
+        const g = c.createGain();
+        g.gain.setValueAtTime(0, start);
+        g.gain.linearRampToValueAtTime(v * amp, start + 0.018);
+        g.gain.exponentialRampToValueAtTime(0.0001, start + 0.72);
+        osc.connect(g).connect(masterGain);
+        osc.start(start);
+        osc.stop(start + 0.75);
+      }
       break;
     }
     case "thud": {
@@ -709,6 +746,109 @@ export function playSound(name: SoundName, volume = 1) {
       osc.connect(g).connect(masterGain);
       osc.start(now);
       osc.stop(now + 0.24);
+      break;
+    }
+
+    case "gallery-hover": {
+      const dur = 0.18;
+      const osc = c.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1480 + Math.random() * 80, now);
+      osc.frequency.exponentialRampToValueAtTime(1180, now + dur);
+      const g = c.createGain();
+      g.gain.setValueAtTime(v * 0.12, now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      osc.connect(g).connect(masterGain);
+      osc.start(now);
+      osc.stop(now + dur + 0.02);
+      break;
+    }
+
+    case "gallery-select": {
+      const freqs: Array<[number, number, number]> = [
+        [660, 0.16, 0],
+        [990, 0.11, 0.045],
+        [1320, 0.07, 0.09],
+      ];
+      for (const [f, amp, delay] of freqs) {
+        const start = now + delay;
+        const osc = c.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = f;
+        const g = c.createGain();
+        g.gain.setValueAtTime(0, start);
+        g.gain.linearRampToValueAtTime(v * amp, start + 0.018);
+        g.gain.exponentialRampToValueAtTime(0.0001, start + 0.9);
+        osc.connect(g).connect(masterGain);
+        osc.start(start);
+        osc.stop(start + 0.95);
+      }
+      break;
+    }
+
+    case "gallery-reveal": {
+      const dur = 0.42;
+      const noise = c.createBuffer(1, c.sampleRate * dur, c.sampleRate);
+      const data = noise.getChannelData(0);
+      for (let i = 0; i < data.length; i++) {
+        const t = i / data.length;
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 1.6);
+      }
+      const src = c.createBufferSource();
+      src.buffer = noise;
+      const bp = c.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.Q.value = 1.1;
+      bp.frequency.setValueAtTime(320, now);
+      bp.frequency.exponentialRampToValueAtTime(1200, now + dur);
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(v * 0.2, now + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      src.connect(bp).connect(g).connect(masterGain);
+      src.start(now);
+      src.stop(now + dur);
+      break;
+    }
+
+    case "ring-hover": {
+      const freqs: Array<[number, number]> = [
+        [512, 0.11],
+        [767, 0.07],
+        [1028, 0.05],
+      ];
+      for (const [f, amp] of freqs) {
+        const osc = c.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = f;
+        const g = c.createGain();
+        g.gain.setValueAtTime(v * amp, now);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
+        osc.connect(g).connect(masterGain);
+        osc.start(now);
+        osc.stop(now + 0.42);
+      }
+      break;
+    }
+
+    case "ring-select": {
+      const freqs: Array<[number, number, number]> = [
+        [196, 0.14, 1.25],
+        [294, 0.1, 1.0],
+        [515, 0.08, 0.8],
+        [835, 0.05, 0.55],
+      ];
+      for (const [f, amp, decay] of freqs) {
+        const osc = c.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = f;
+        const g = c.createGain();
+        g.gain.setValueAtTime(v * amp, now);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + decay);
+        osc.connect(g).connect(masterGain);
+        osc.start(now);
+        osc.stop(now + decay + 0.04);
+      }
       break;
     }
 

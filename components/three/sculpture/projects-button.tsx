@@ -13,7 +13,7 @@
  * Static by design — these shards do NOT participate in the main
  * ShardPhysicsState, so the cursor cannot push them around. Hover raises
  * the material's emissiveIntensity smoothly so the button "lights up".
- * Click routes to /projects.
+ * Click toggles the in-scene project-card morph.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -33,7 +33,7 @@ import { TUNING } from "./tuning";
 import type { Placement } from "./placements";
 import { setCursorHover } from "./cursor-bus";
 import {
-  playSound,
+  SOUND_ASSETS,
   playSample,
   preloadSample,
   getSampleDuration,
@@ -57,7 +57,7 @@ const CYMBAL_URL = "/sounds/" + encodeURIComponent("reversecymbal_[cut_5sec].mp3
 // reverse-offset math.
 const CYMBAL_START_OFFSET = 0;
 const CYMBAL_PLAY_LEN = 5;
-const CYMBAL_VOLUME = 0.08;
+const CYMBAL_VOLUME = 0.065;
 
 // Module-level state for the cymbal toggle. Lives outside the component
 // so click → click rapid-fire keeps a single active handle without
@@ -130,6 +130,7 @@ function handleCymbalToggle() {
       durationToPlay = CYMBAL_START_OFFSET + CYMBAL_PLAY_LEN - playheadT;
     }
     cymbalHandle = playSample(CYMBAL_URL, CYMBAL_VOLUME, offset, durationToPlay, {
+      reverbSend: 0.16,
       reversed: cymbalReversed,
     });
     cymbalAnchorOriginalT = playheadT;
@@ -147,7 +148,7 @@ function handleCymbalToggle() {
     CYMBAL_VOLUME,
     CYMBAL_START_OFFSET,
     CYMBAL_PLAY_LEN,
-    { reversed: false },
+    { reverbSend: 0.16, reversed: false },
   );
   scheduleCymbalAutoClear(CYMBAL_PLAY_LEN);
 }
@@ -263,6 +264,10 @@ export function ProjectsButton() {
 
   useEffect(() => onShowcaseChange(setShowcase), []);
   useEffect(() => onModeChange((m) => setMode(m)), []);
+  useEffect(() => {
+    preloadSample(CYMBAL_URL);
+    preloadSample(SOUND_ASSETS.galleryHover);
+  }, []);
 
   // Back-arrow placements used when the showcase is open — same shard
   // count as the text so we can lerp 1:1 between the two layouts.
@@ -500,6 +505,9 @@ export function ProjectsButton() {
     e.stopPropagation();
     setHover(true);
     setCursorHover(true);
+    playSample(SOUND_ASSETS.galleryHover, 0.16, 0, undefined, {
+      reverbSend: 0.08,
+    });
   };
   const onOut = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();

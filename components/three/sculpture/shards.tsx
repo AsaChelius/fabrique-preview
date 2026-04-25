@@ -26,6 +26,7 @@ import * as THREE from "three";
 import { TUNING } from "./tuning";
 import type { Placement } from "./placements";
 import type { ShardPhysicsState } from "./physics";
+import { setCursorHover } from "./cursor-bus";
 
 export type ShowcaseRef = {
   active: boolean;
