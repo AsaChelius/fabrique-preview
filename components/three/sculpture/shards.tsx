@@ -37,6 +37,9 @@ export type ShowcaseRef = {
   /** True for sculptural edge targets that should turn each metal strip
    *  along its assigned edge instead of keeping the original hanging yaw. */
   orientToEdge: boolean;
+  /** Extra monochrome motion for sculptural modes that should stay alive
+   *  without entering the full chameleon showcase color state. */
+  motionStrength: number;
   /** 0..4 when the cursor is hovering that card's hitbox — shards
    *  whose `cardIndex` matches get a glow boost on their chameleon
    *  color (brighter + more saturated). Null = no hover. */
@@ -240,6 +243,7 @@ export function Shards({
     const orientEdgeFlow = showcaseRef.current.orientToEdge
       ? showcaseRef.current.edgeFlow
       : null;
+    const ambientMotion = showcaseRef.current.motionStrength;
     const hoveredCard = showcaseRef.current.hoveredCard;
     const dominantCard = showcaseRef.current.dominantCard;
 
@@ -296,6 +300,27 @@ export function Shards({
         dx = ex * wave;
         dy = ey * wave;
         dz = ez * wave;
+      }
+
+      if (ambientMotion > 0.005) {
+        const w3 = i * 3;
+        const breathe =
+          0.65 + 0.35 * Math.sin(t * 0.72 + shardSeeds[i] * Math.PI * 2);
+        dx +=
+          Math.sin(t * TUNING.aboutMotionFreqX + windPhases[w3]) *
+          TUNING.aboutMotionAmpX *
+          ambientMotion *
+          breathe;
+        dy +=
+          Math.sin(t * TUNING.aboutMotionFreqY + windPhases[w3 + 1]) *
+          TUNING.aboutMotionAmpY *
+          ambientMotion *
+          breathe;
+        dz +=
+          Math.sin(t * TUNING.aboutMotionFreqZ + windPhases[w3 + 2]) *
+          TUNING.aboutMotionAmpZ *
+          ambientMotion *
+          breathe;
       }
 
       pos.set(

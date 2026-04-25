@@ -358,9 +358,9 @@ export function computeAboutFrameHomes(count: number): ShowcaseHomes {
   const hd = ABOUT_PANEL.depth / 2;
 
   const edgeWeights = [
-    0.14, 0.02, 0.09, 0.09,
-    0.14, 0.02, 0.09, 0.09,
-    0.006, 0.15, 0.006, 0.15,
+    0.075, 0.02, 0.13, 0.13,
+    0.075, 0.02, 0.13, 0.13,
+    0.006, 0.142, 0.006, 0.142,
   ] as const;
 
   for (let i = 0; i < count; i++) {
