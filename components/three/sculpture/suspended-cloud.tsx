@@ -309,6 +309,37 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
     };
   }, [clouds]);
 
+  useEffect(() => {
+    if (!clouds || typeof window === "undefined") return;
+    let cancelled = false;
+    const warmAboutTargets = () => {
+      if (cancelled) return;
+      computeAboutLetterHomes(clouds.letter.length);
+      computeAboutFrameHomes(clouds.frame.length);
+    };
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (
+        cb: IdleRequestCallback,
+        opts?: IdleRequestOptions,
+      ) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (idleWindow.requestIdleCallback) {
+      const id = idleWindow.requestIdleCallback(warmAboutTargets, {
+        timeout: 1800,
+      });
+      return () => {
+        cancelled = true;
+        idleWindow.cancelIdleCallback?.(id);
+      };
+    }
+    const id = window.setTimeout(warmAboutTargets, 700);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [clouds]);
+
   if (!clouds) return null;
 
   const frameStart = 0;

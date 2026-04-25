@@ -55,7 +55,7 @@ const ABOUT_PANEL = {
   size: 5.65,
   centerY: 0.48,
   centerZ: 0,
-  depth: 1.85,
+  depth: 1.05,
   borderJitter: 0.038,
   sampleSize: 1800,
   alphaThreshold: 140,
@@ -358,9 +358,9 @@ export function computeAboutFrameHomes(count: number): ShowcaseHomes {
   const hd = ABOUT_PANEL.depth / 2;
 
   const edgeWeights = [
-    0.075, 0.02, 0.13, 0.13,
-    0.075, 0.02, 0.13, 0.13,
-    0.006, 0.142, 0.006, 0.142,
+    0.62, 0, 0, 0,
+    0.36, 0, 0, 0,
+    0, 0.01, 0, 0.01,
   ] as const;
 
   for (let i = 0; i < count; i++) {
@@ -387,12 +387,14 @@ export function computeAboutFrameHomes(count: number): ShowcaseHomes {
         y = -half + j1;
         dx = 1;
       } else if (side === 2) {
+        const sideT = rand();
         x = -half + j1;
-        y = t * half;
+        y = half - sideT * half * 0.95;
         dy = 1;
       } else {
+        const sideT = rand();
         x = half + j1;
-        y = t * half;
+        y = half - sideT * half * 0.95;
         dy = 1;
       }
     } else {

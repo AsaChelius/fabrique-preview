@@ -121,13 +121,13 @@ function AboutPanelCopy() {
   const material = useMemo(
     () =>
       new THREE.MeshPhysicalMaterial({
-        color: "#30333a",
+        color: "#f6f3ea",
         metalness: 1,
-        roughness: 0.22,
+        roughness: 0.18,
         transparent: true,
         opacity: 0,
-        emissive: new THREE.Color("#050607"),
-        emissiveIntensity: 0.06,
+        emissive: new THREE.Color("#d8d2c4"),
+        emissiveIntensity: 0.18,
         envMapIntensity: TUNING.envMapIntensity * 1.25,
       }),
     [],
@@ -135,7 +135,7 @@ function AboutPanelCopy() {
   const shadowMaterial = useMemo(
     () =>
       new THREE.MeshBasicMaterial({
-        color: "#a9aca6",
+        color: "#15171b",
         transparent: true,
         opacity: 0,
       }),
@@ -149,8 +149,6 @@ function AboutPanelCopy() {
     material.opacity = opacityRef.current;
     shadowMaterial.opacity = opacityRef.current * 0.32;
   });
-
-  if (mode !== "about" && opacityRef.current < 0.01) return null;
 
   return (
     <group position={[0, 0.44, 1.05]} rotation={[-0.025, 0, 0]}>
@@ -198,13 +196,13 @@ function AboutPanelCopy() {
       />
       <MetalTextLine
         material={material}
-        position={[-1.82, -1.42, 0.1]}
+        position={[-1.86, -1.3, 0.1]}
         size={0.105}
         text="EDOUARD"
       />
       <MetalTextLine
         material={material}
-        position={[1.82, -1.42, 0.1]}
+        position={[1.86, -1.3, 0.1]}
         size={0.105}
         text="ASA"
       />
