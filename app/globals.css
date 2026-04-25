@@ -1120,9 +1120,9 @@ body.sculpture-mode .route-nav {
   position: fixed;
   left: 0;
   top: 0;
-  width: 8px;
-  height: 8px;
-  border: 1px solid #2c2e33;
+  width: 14px;
+  height: 14px;
+  border: 1.25px solid #2c2e33;
   border-radius: 50%;
   background: transparent;
   pointer-events: none;
@@ -1141,8 +1141,8 @@ body.sculpture-mode .route-nav {
   opacity: 1;
 }
 .sculpture-cursor.is-hover {
-  width: 18px;
-  height: 18px;
+  width: 32px;
+  height: 32px;
   background: rgba(44, 46, 51, 0.85);
   border-color: rgba(44, 46, 51, 0.85);
 }

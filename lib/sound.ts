@@ -40,6 +40,12 @@ export type SoundName =
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
 let unlocked = false;
+// Shared reverb bus — convolver with a synthesized IR. Lazily built on
+// first request via getReverbBus(). Routed: source → wetGain → convolver
+// → masterGain. The convolver's wet output goes to master alongside the
+// source's dry signal.
+let reverbConvolver: ConvolverNode | null = null;
+let reverbWetIn: GainNode | null = null;
 
 function ensureContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -56,12 +62,261 @@ function ensureContext(): AudioContext | null {
   return ctx;
 }
 
+/**
+ * Generate an impulse response: exponentially decaying stereo noise.
+ * `seconds` controls the reverb tail length, `decay` shapes the curve.
+ * Bigger seconds = longer linger; bigger decay = brighter early / dies
+ * quicker.
+ */
+function buildImpulseResponse(c: AudioContext, seconds: number, decay = 2.5): AudioBuffer {
+  const sampleRate = c.sampleRate;
+  const length = Math.max(1, Math.floor(sampleRate * seconds));
+  const buf = c.createBuffer(2, length, sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = buf.getChannelData(ch);
+    for (let i = 0; i < length; i++) {
+      // Random noise * exponential decay envelope
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+    }
+  }
+  return buf;
+}
+
+/** Returns the shared reverb input gain. Connect a source's wet send
+ *  here; convolver output is already wired to masterGain. */
+function getReverbBus(c: AudioContext, master: GainNode): GainNode | null {
+  if (reverbWetIn) return reverbWetIn;
+  reverbConvolver = c.createConvolver();
+  reverbConvolver.buffer = buildImpulseResponse(c, 3.6, 2.2); // ~3.6s tail
+  reverbWetIn = c.createGain();
+  reverbWetIn.gain.value = 1;
+  reverbWetIn.connect(reverbConvolver).connect(master);
+  return reverbWetIn;
+}
+
 /** Call once after first user interaction to unlock audio. */
 export function unlockAudio() {
   const c = ensureContext();
   if (!c || unlocked) return;
   if (c.state === "suspended") c.resume();
   unlocked = true;
+}
+
+// -----------------------------------------------------------------------------
+// Asset-based samples — for sounds that are richer than what synthesis can
+// produce (chimes, recorded foley, etc.). Drop files in /public/sounds/ and
+// call `playSample("/sounds/your-file.mp3", volume)`.
+//
+// AudioBuffers are decoded once and cached. First play has fetch + decode
+// latency (~10-50ms); subsequent plays are instant.
+// -----------------------------------------------------------------------------
+
+const sampleCache = new Map<string, AudioBuffer>();
+const samplePending = new Map<string, Promise<AudioBuffer | null>>();
+
+async function loadSample(url: string): Promise<AudioBuffer | null> {
+  const c = ensureContext();
+  if (!c) return null;
+  const cached = sampleCache.get(url);
+  if (cached) return cached;
+  const inflight = samplePending.get(url);
+  if (inflight) return inflight;
+
+  const p = (async () => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const arr = await res.arrayBuffer();
+      const buf = await c.decodeAudioData(arr);
+      sampleCache.set(url, buf);
+      return buf;
+    } catch {
+      return null;
+    } finally {
+      samplePending.delete(url);
+    }
+  })();
+  samplePending.set(url, p);
+  return p;
+}
+
+/** Returned by playSample for callers that want to fade/stop their sound. */
+export type SampleHandle = {
+  /** Fade out + stop. Safe to call multiple times. */
+  stop: (fadeMs?: number) => void;
+  /** Smoothly ramp the playback gain to `target` over `fadeMs`. Use this
+   *  to duck older overlapping samples without truncating them. */
+  setVolume: (target: number, fadeMs?: number) => void;
+};
+
+/**
+ * Play a sample file from /public. Fire-and-forget by default.
+ *
+ * @param url          File URL.
+ * @param volume       0..1.
+ * @param offset       Seconds to skip at the start.
+ * @param duration     Optional max seconds to play.
+ * @param reverbSend   0..1, amount sent to the shared reverb bus. >0 makes
+ *                     the sample linger with a ~3.6s tail. Stack across
+ *                     multiple plays for a wash.
+ */
+export function playSample(
+  url: string,
+  volume = 1,
+  offset = 0,
+  duration?: number,
+  reverbSend = 0,
+): SampleHandle {
+  const c = ensureContext();
+  // Even if context isn't ready, return a no-op handle so callers don't
+  // have to null-check.
+  const noop: SampleHandle = { stop: () => {}, setVolume: () => {} };
+  if (!c || !masterGain) return noop;
+
+  let stopped = false;
+  let src: AudioBufferSourceNode | null = null;
+  let g: GainNode | null = null;
+
+  loadSample(url).then((buf) => {
+    if (stopped || !buf || !c || !masterGain) return;
+    src = c.createBufferSource();
+    src.buffer = buf;
+    g = c.createGain();
+    g.gain.value = volume;
+    src.connect(g).connect(masterGain);
+    // Reverb send: parallel branch through the shared convolver bus.
+    if (reverbSend > 0) {
+      const bus = getReverbBus(c, masterGain);
+      if (bus) {
+        const send = c.createGain();
+        send.gain.value = reverbSend * volume;
+        g.connect(send).connect(bus);
+      }
+    }
+    const safeOffset = Math.max(0, Math.min(offset, buf.duration - 0.01));
+    src.start(0, safeOffset);
+    if (duration && duration > 0) {
+      // Schedule a short fade + stop at offset+duration so the cut
+      // doesn't click. 60ms tail blends naturally into silence.
+      const now = c.currentTime;
+      const tailStart = now + duration;
+      const tailEnd = tailStart + 0.06;
+      g.gain.setValueAtTime(volume, tailStart);
+      g.gain.linearRampToValueAtTime(0.0001, tailEnd);
+      try {
+        src.stop(tailEnd + 0.02);
+      } catch {
+        // Already scheduled — ignore.
+      }
+    }
+  });
+
+  return {
+    stop: (fadeMs = 60) => {
+      stopped = true;
+      if (!c || !src || !g) return;
+      const now = c.currentTime;
+      const end = now + fadeMs / 1000;
+      try {
+        g.gain.cancelScheduledValues(now);
+        g.gain.setValueAtTime(g.gain.value, now);
+        g.gain.linearRampToValueAtTime(0.0001, end);
+        src.stop(end + 0.02);
+      } catch {
+        // Already stopped — ignore.
+      }
+    },
+    setVolume: (target: number, fadeMs = 200) => {
+      if (!c || !g) return;
+      const now = c.currentTime;
+      try {
+        g.gain.cancelScheduledValues(now);
+        g.gain.setValueAtTime(g.gain.value, now);
+        g.gain.linearRampToValueAtTime(Math.max(0.0001, target), now + fadeMs / 1000);
+      } catch {
+        // Buffer not ready yet — the loadSample().then(...) above will
+        // pick up the volume when it materializes. Best-effort here.
+      }
+    },
+  };
+}
+
+/** Optional: warm the cache so the first playback has no fetch latency. */
+export function preloadSample(url: string): void {
+  loadSample(url);
+}
+
+/**
+ * Play a sample on infinite loop. Returns a handle with `stop(fadeMs)`.
+ * Used for ambient beds — the loop will gracefully fade out instead of
+ * cutting off when stopped.
+ *
+ * @param url
+ * @param volume
+ * @param tameTransients  When true, inserts a DynamicsCompressorNode in
+ *                        the chain that aggressively ducks loud peaks
+ *                        relative to the bed (e.g. the bells baked into
+ *                        ambiencesound.mp3). Bed level stays normal,
+ *                        peaks get compressed down ~12dB.
+ */
+export function playSampleLoop(
+  url: string,
+  volume = 1,
+  tameTransients = false,
+): SampleHandle {
+  const c = ensureContext();
+  const noop: SampleHandle = { stop: () => {} };
+  if (!c || !masterGain) return noop;
+
+  let stopped = false;
+  let src: AudioBufferSourceNode | null = null;
+  let g: GainNode | null = null;
+
+  loadSample(url).then((buf) => {
+    if (stopped || !buf || !c || !masterGain) return;
+    src = c.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    g = c.createGain();
+    // Fade in over 600ms so entering the route doesn't slam in.
+    const now = c.currentTime;
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(volume, now + 0.6);
+
+    let tail: AudioNode = g;
+    if (tameTransients) {
+      // Compressor: anything louder than -28dB gets squished hard.
+      // The quiet bed sits below threshold and passes through clean.
+      const comp = c.createDynamicsCompressor();
+      comp.threshold.value = -28;
+      comp.knee.value = 6;
+      comp.ratio.value = 12;
+      comp.attack.value = 0.003;
+      comp.release.value = 0.18;
+      g.connect(comp);
+      tail = comp;
+    }
+    tail.connect(masterGain);
+    src.connect(g);
+    src.start();
+  });
+
+  return {
+    stop: (fadeMs = 500) => {
+      stopped = true;
+      if (!c || !src || !g) return;
+      const now = c.currentTime;
+      const end = now + fadeMs / 1000;
+      try {
+        g.gain.cancelScheduledValues(now);
+        g.gain.setValueAtTime(g.gain.value, now);
+        g.gain.linearRampToValueAtTime(0.0001, end);
+        src.stop(end + 0.05);
+      } catch {
+        // Already stopped.
+      }
+    },
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -75,6 +330,10 @@ type AmbientHandle = {
   stop: () => void;
 };
 let ambient: AmbientHandle | null = null;
+// When set, startAmbient() becomes a no-op. Routes that own their own
+// ambient (e.g. /title using a sample loop) suspend the synth bed so a
+// later RouteNav unlock can't re-start it underneath them.
+let ambientSuspended = false;
 
 function centsToFreqMul(cents: number) {
   return Math.pow(2, cents / 1200);
@@ -100,6 +359,7 @@ export function startAmbient() {
   const c = ensureContext();
   if (!c || !masterGain || ambient) return;
   if (c.state === "suspended") return;
+  if (ambientSuspended) return;
 
   // --- Main bed gain + fade-in ---
   const bed = c.createGain();
@@ -202,6 +462,17 @@ export function startAmbient() {
       bed.gain.cancelScheduledValues(now);
       bed.gain.linearRampToValueAtTime(0, now + 0.6);
       if (chimeTimer !== null) window.clearTimeout(chimeTimer);
+      // Hard-mute the chime bus immediately so any in-flight chime
+      // (already-spawned, fade-tail still ringing) is silenced. Without
+      // this the elevator-music ding could still leak through after
+      // suspendAmbient was called.
+      try {
+        chimeBus.gain.cancelScheduledValues(now);
+        chimeBus.gain.setValueAtTime(0, now);
+        chimeBus.disconnect();
+      } catch {
+        // Already disconnected — ignore.
+      }
       window.setTimeout(() => {
         try {
           [osc1, osc2, osc3, osc4, osc5, filterLfo, breathLfo].forEach((n) => n.stop());
@@ -217,6 +488,19 @@ export function stopAmbient() {
   if (!ambient) return;
   ambient.stop();
   ambient = null;
+}
+
+/** Hard-suspend the synth ambient bed: stops it if running, AND blocks
+ *  future startAmbient() calls until resumeAmbient() is called. Used by
+ *  routes with their own ambient bed. */
+export function suspendAmbient() {
+  ambientSuspended = true;
+  stopAmbient();
+}
+
+/** Lift the suspend so other routes can run the synth ambient again. */
+export function resumeAmbient() {
+  ambientSuspended = false;
 }
 
 // -----------------------------------------------------------------------------

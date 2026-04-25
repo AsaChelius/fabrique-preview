@@ -25,6 +25,12 @@ import { useSculpturePalette, type SculpturePalette } from "./palette";
 import { TUNING } from "./tuning";
 import { onReveal } from "./reveal-bus";
 import { setCursorHover, resetCursorHover } from "./cursor-bus";
+import { playSound, playSample, preloadSample, unlockAudio } from "@/lib/sound";
+
+/** Sample dropped in /public/sounds/. URL-encoded once because the filename
+ *  contains spaces. Played on card-select; preloaded on first hover so the
+ *  click is latency-free. */
+const SELECT_CHIME_URL = "/sounds/" + encodeURIComponent("chime for select box.mp3");
 import { SHOWCASE_LAYOUT } from "./showcase-targets";
 import {
   collapseExpanded,
@@ -83,7 +89,7 @@ export function SculptureScene() {
             doesn't remount the cloud and replay the showcase-morph
             animation mid-project-view. */}
         <MirrorBelow floorY={TUNING.floorY}>
-          <SuspendedCloud />
+          <SuspendedCloud interactive={false} />
         </MirrorBelow>
 
         <ReflectiveFloor palette={palette} />
@@ -214,6 +220,11 @@ function CardHitPlane({
     setHoveredCard(idx);
     document.body.style.cursor = "pointer";
     setCursorHover(true);
+    // Quiet pop as the cursor lands on a selectable card.
+    playSound("orb-pop", 0.105);
+    // Warm the chime cache on first hover so the click sound fires
+    // instantly with no fetch/decode delay.
+    preloadSample(SELECT_CHIME_URL);
   };
   const onOut = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
@@ -223,6 +234,10 @@ function CardHitPlane({
   };
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
+    unlockAudio();
+    // Trim 0.2s off the start — kills the soft pre-attack so the chime
+    // hits crisply on click.
+    playSample(SELECT_CHIME_URL, 0.85, 0.2);
     expandCard(idx);
   };
   return (

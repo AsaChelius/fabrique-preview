@@ -13,9 +13,14 @@
 import { useEffect, useState } from "react";
 import { SculptureScene } from "./sculpture-scene";
 import { SculptureCursor } from "./sculpture-cursor";
+import { WindchimeMotion } from "./windchime-motion";
 import { triggerReveal } from "./reveal-bus";
 import { RouteTransition } from "./route-transition";
 import { setShowcase } from "./showcase-bus";
+import { attachSculptureAmbient } from "./sculpture-ambient";
+import { playSound, playSample, unlockAudio } from "@/lib/sound";
+
+const LIGHT_SWITCH_URL = "/sounds/lightswitch.mp3";
 
 const pillStyle = {
   position: "fixed" as const,
@@ -36,10 +41,12 @@ export function SculptureRoute() {
 
   useEffect(() => {
     document.body.classList.add("sculpture-mode");
+    const detachAmbient = attachSculptureAmbient();
     return () => {
       document.body.classList.remove("sculpture-mode");
       document.body.classList.remove("sculpture-dark");
       setShowcase(false);
+      detachAmbient();
     };
   }, []);
 
@@ -54,7 +61,12 @@ export function SculptureRoute() {
       </div>
       <button
         type="button"
-        onClick={() => triggerReveal()}
+        onClick={() => {
+          unlockAudio();
+          // Soft whoosh that lands as the camera begins its pan.
+          playSound("whoosh", 0.5);
+          triggerReveal();
+        }}
         aria-label="Replay reveal animation"
         style={{ ...pillStyle, bottom: "2rem", left: "50%", transform: "translateX(-50%)" }}
       >
@@ -62,7 +74,13 @@ export function SculptureRoute() {
       </button>
       <button
         type="button"
-        onClick={() => setDark((d) => !d)}
+        onClick={() => {
+          unlockAudio();
+          // Real light-switch click — replaces the synth `flicker` voice
+          // since this is the more literal sell of "lights just changed".
+          playSample(LIGHT_SWITCH_URL, 0.7);
+          setDark((d) => !d);
+        }}
         aria-label="Toggle dark mode"
         style={{ ...pillStyle, top: "2rem", right: "2rem" }}
       >
@@ -70,6 +88,7 @@ export function SculptureRoute() {
       </button>
       <RouteTransition />
       <SculptureCursor />
+      <WindchimeMotion />
     </main>
   );
 }

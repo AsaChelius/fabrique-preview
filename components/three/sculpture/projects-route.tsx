@@ -17,12 +17,16 @@ import { useEffect } from "react";
 import { ProjectsScene } from "./projects-scene";
 import { SculptureCursor } from "./sculpture-cursor";
 import { RouteTransition, navigateWithFade } from "./route-transition";
+import { attachSculptureAmbient } from "./sculpture-ambient";
+import { playSound, unlockAudio } from "@/lib/sound";
 
 export function ProjectsRoute() {
   useEffect(() => {
     document.body.classList.add("sculpture-mode");
+    const detachAmbient = attachSculptureAmbient();
     return () => {
       document.body.classList.remove("sculpture-mode");
+      detachAmbient();
     };
   }, []);
 
@@ -33,7 +37,13 @@ export function ProjectsRoute() {
       </div>
       <button
         type="button"
-        onClick={() => navigateWithFade("/title")}
+        onClick={() => {
+          unlockAudio();
+          // Same whoosh as /title's Replay — back-to-title kicks the
+          // reveal pan, so the audio cue matches the Replay action.
+          playSound("whoosh", 0.5);
+          navigateWithFade("/title");
+        }}
         aria-label="Back to title with reveal animation"
         style={{
           position: "fixed",

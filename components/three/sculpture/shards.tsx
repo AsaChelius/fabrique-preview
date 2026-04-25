@@ -66,6 +66,10 @@ export type ShardsProps = {
   /** How this mesh behaves while the showcase morph is > 0. Defaults
    *  to "still". */
   showcaseMotion?: ShowcaseMotion;
+  /** When false, skip pointer event handlers (mirror copy below the floor
+   *  shouldn't ring the windchimes — the user is hovering the *reflection*,
+   *  not the metal). */
+  interactive?: boolean;
 };
 
 export function Shards({
@@ -75,6 +79,7 @@ export function Shards({
   stateStart,
   showcaseRef,
   showcaseMotion = "still",
+  interactive = true,
 }: ShardsProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
 
@@ -333,10 +338,38 @@ export function Shards({
     prevColorMorph.current = morph;
   });
 
+  // Pointer-over the shard cluster fires a window-level CustomEvent that
+  // <WindchimeMotion /> listens to (chimes ring) AND flips the cursor
+  // ring into hover state. stopPropagation is intentionally NOT called:
+  // showcase card hitboxes still need the same pointer events.
+  const dispatchHover = (over: boolean) => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("sculpt-shard-hover", { detail: { over } }),
+    );
+    setCursorHover(over);
+  };
+
+  // Mirror copy: render WITHOUT pointer handlers AND override raycast to
+  // a no-op so Three.js never even hit-tests the reflection. Passing
+  // `raycast={undefined}` to R3F clobbers the default raycast method, so
+  // we render two distinct mesh JSX trees instead of one with conditional
+  // props.
+  if (!interactive) {
+    return (
+      <instancedMesh
+        ref={meshRef}
+        args={[geometry, material, placements.length]}
+        raycast={(() => {}) as unknown as THREE.Object3D["raycast"]}
+      />
+    );
+  }
   return (
     <instancedMesh
       ref={meshRef}
       args={[geometry, material, placements.length]}
+      onPointerOver={() => dispatchHover(true)}
+      onPointerOut={() => dispatchHover(false)}
     />
   );
 }

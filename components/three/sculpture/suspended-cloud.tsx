@@ -45,7 +45,7 @@ type Clouds = {
   physics: ShardPhysicsState;
 };
 
-export function SuspendedCloud() {
+export function SuspendedCloud({ interactive = true }: { interactive?: boolean } = {}) {
   const layers = useLayers();
   const palette = useSculpturePalette();
 
@@ -225,6 +225,7 @@ export function SuspendedCloud() {
         stateStart={frameStart}
         showcaseRef={frameShowcase}
         showcaseMotion="wind"
+        interactive={interactive}
       />
       <Shards
         placements={clouds.letter}
@@ -233,6 +234,7 @@ export function SuspendedCloud() {
         stateStart={letterStart}
         showcaseRef={letterShowcase}
         showcaseMotion="snake"
+        interactive={interactive}
       />
     </>
   );

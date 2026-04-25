@@ -32,6 +32,7 @@ import {
 import { TUNING } from "./tuning";
 import type { Placement } from "./placements";
 import { setCursorHover } from "./cursor-bus";
+import { playSound, unlockAudio } from "@/lib/sound";
 
 // ---- Button-local tuning -------------------------------------------------
 const BUTTON = {
@@ -389,6 +390,14 @@ export function ProjectsButton() {
   };
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
+    unlockAudio();
+    // Opening the showcase (text → arrow morph) = rising chime.
+    // Back-arrow click (arrow → text) = softer descending ding.
+    if (isShowcaseActive()) {
+      playSound("orb-pop", 0.55);
+    } else {
+      playSound("ding", 0.45);
+    }
     toggleShowcase();
   };
 
