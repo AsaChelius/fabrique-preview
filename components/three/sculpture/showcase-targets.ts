@@ -358,14 +358,15 @@ export function computeAboutFrameHomes(count: number): ShowcaseHomes {
   const hd = ABOUT_PANEL.depth / 2;
 
   const edgeWeights = [
-    0.62, 0, 0, 0,
-    0.36, 0, 0, 0,
-    0, 0.01, 0, 0.01,
+    ABOUT_PANEL.size, ABOUT_PANEL.size, ABOUT_PANEL.size, ABOUT_PANEL.size,
+    ABOUT_PANEL.size, ABOUT_PANEL.size, ABOUT_PANEL.size, ABOUT_PANEL.size,
+    ABOUT_PANEL.depth, ABOUT_PANEL.depth, ABOUT_PANEL.depth, ABOUT_PANEL.depth,
   ] as const;
 
   for (let i = 0; i < count; i++) {
     const edge = pickWeighted(edgeWeights, rand());
-    const t = rand() * 2 - 1;
+    const edgeT = rand();
+    const t = edgeT * 2 - 1;
     const j1 = (rand() - 0.5) * ABOUT_PANEL.borderJitter;
     const j2 = (rand() - 0.5) * ABOUT_PANEL.borderJitter;
     let x = 0;
@@ -381,26 +382,31 @@ export function computeAboutFrameHomes(count: number): ShowcaseHomes {
       if (side === 0) {
         x = t * half;
         y = half + j1;
+        z += j2;
         dx = 1;
       } else if (side === 1) {
         x = t * half;
-        y = -half + j1;
+        y = -half + Math.abs(j1);
+        z += j2;
         dx = 1;
       } else if (side === 2) {
-        const sideT = rand();
         x = -half + j1;
-        y = half - sideT * half * 0.95;
+        y = -half + edgeT * ABOUT_PANEL.size;
+        z += j2;
         dy = 1;
       } else {
-        const sideT = rand();
         x = half + j1;
-        y = half - sideT * half * 0.95;
+        y = -half + edgeT * ABOUT_PANEL.size;
+        z += j2;
         dy = 1;
       }
     } else {
       const corner = edge - 8;
       x = corner < 2 ? -half + j1 : half + j1;
-      y = corner === 0 || corner === 2 ? -half + j2 : half + j2;
+      y =
+        corner === 0 || corner === 2
+          ? -half + Math.abs(j2)
+          : half + j2;
       z = t * hd;
       dz = 1;
     }
@@ -412,7 +418,7 @@ export function computeAboutFrameHomes(count: number): ShowcaseHomes {
     edgeFlow[i * 4] = dx;
     edgeFlow[i * 4 + 1] = dy;
     edgeFlow[i * 4 + 2] = dz;
-    edgeFlow[i * 4 + 3] = (t + 1) * 0.5;
+    edgeFlow[i * 4 + 3] = edgeT;
   }
 
   cachedAboutFrameCount = count;
