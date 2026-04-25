@@ -273,13 +273,13 @@ export const TUNING = {
   windFreqZ: 1.3,
 
   /** About plaque idle motion. Separate from project-card wind so the
-   *  about state keeps moving while staying monochrome and readable. */
-  aboutMotionAmpX: 0.07,
-  aboutMotionAmpY: 0.045,
-  aboutMotionAmpZ: 0.085,
-  aboutMotionFreqX: 1.05,
-  aboutMotionFreqY: 1.45,
-  aboutMotionFreqZ: 0.9,
+   *  about state keeps a metallic shimmer without reading as falling rain. */
+  aboutMotionAmpX: 0.035,
+  aboutMotionAmpY: 0.008,
+  aboutMotionAmpZ: 0.045,
+  aboutMotionFreqX: 0.95,
+  aboutMotionFreqY: 0.72,
+  aboutMotionFreqZ: 0.82,
 
   /** Extra physical response when the pointer shakes over a project card.
    *  Applied only to shards belonging to the hovered card. */

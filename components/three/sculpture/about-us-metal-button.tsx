@@ -26,7 +26,6 @@ const ABOUT = {
   halfWidth: 1.28,
   targetY: SHOWCASE_LAYOUT.centerY + SHOWCASE_LAYOUT.cardH / 2 + 0.88,
   sourceY: TUNING.buttonCenterY - 0.04,
-  localCeilingY: SHOWCASE_LAYOUT.centerY + SHOWCASE_LAYOUT.cardH / 2 + 1.38,
   shardHeight: 0.044,
   shardWidth: 0.018,
   shardThickness: 0.0018,
@@ -38,10 +37,11 @@ const ABOUT = {
   opacityLerp: 0.04,
   hoverLerp: 0.16,
   hoverEmissive: 0.9,
+  hoverSpread: 0.095,
+  hoverLift: 0.035,
+  clickSpread: 0.16,
   hitPaddingX: 0.25,
   hitPaddingY: 0.2,
-  wireRadius: 0.00045,
-  wireOpacity: 0.48,
 } as const;
 
 export function AboutUsMetalButton() {
@@ -92,18 +92,6 @@ export function AboutUsMetalButton() {
       ),
     [],
   );
-  const wireGeometry = useMemo(
-    () =>
-      new THREE.CylinderGeometry(
-        ABOUT.wireRadius,
-        ABOUT.wireRadius,
-        1,
-        5,
-        1,
-        false,
-      ),
-    [],
-  );
   const shardMaterial = useMemo(
     () =>
       new THREE.MeshPhysicalMaterial({
@@ -119,25 +107,9 @@ export function AboutUsMetalButton() {
     // Mutated in useFrame so the instanced mesh keeps its matrices.
     [], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const wireMaterial = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: new THREE.Color(palette.projectsWire),
-        metalness: 0.1,
-        roughness: 0.8,
-        transparent: true,
-        opacity: 0,
-      }),
-    // Mutated in useFrame.
-    [], // eslint-disable-line react-hooks/exhaustive-deps
-  );
   const targetBase = useMemo(
     () => new THREE.Color(palette.projectsBase),
     [palette.projectsBase],
-  );
-  const targetWire = useMemo(
-    () => new THREE.Color(palette.projectsWire),
-    [palette.projectsWire],
   );
   const targetEmissive = useMemo(
     () => new THREE.Color(palette.projectsEmissive),
@@ -145,10 +117,11 @@ export function AboutUsMetalButton() {
   );
 
   const shardRef = useRef<THREE.InstancedMesh>(null);
-  const wireRef = useRef<THREE.InstancedMesh>(null);
   const currentPos = useRef<Float32Array | null>(null);
   const morph = useRef(0);
   const opacity = useRef(0);
+  const hoverAmp = useRef(0);
+  const clickBurst = useRef(0);
 
   const baseQuats = useMemo<Float32Array | null>(() => {
     if (!targetPlacements) return null;
@@ -167,6 +140,23 @@ export function AboutUsMetalButton() {
     return arr;
   }, [targetPlacements]);
 
+  const separationDirs = useMemo<Float32Array | null>(() => {
+    if (!targetPlacements) return null;
+    const arr = new Float32Array(targetPlacements.length * 3);
+    const rand = mulberry32(0xab0a7005);
+    for (let i = 0; i < targetPlacements.length; i++) {
+      const p = targetPlacements[i];
+      const awayX = p.x;
+      const awayY = p.y - ABOUT.targetY;
+      const len = Math.max(0.001, Math.hypot(awayX, awayY));
+      const mag = 0.55 + rand() * 0.45;
+      arr[i * 3] = (awayX / len) * mag + (rand() - 0.5) * 0.35;
+      arr[i * 3 + 1] = (awayY / len) * mag + ABOUT.hoverLift;
+      arr[i * 3 + 2] = (rand() - 0.5) * mag * 0.7;
+    }
+    return arr;
+  }, [targetPlacements]);
+
   useLayoutEffect(() => {
     if (!sourcePlacements) return;
     const N = sourcePlacements.length;
@@ -181,23 +171,17 @@ export function AboutUsMetalButton() {
       shardRef.current.count = N;
       shardRef.current.frustumCulled = false;
     }
-    if (wireRef.current) {
-      wireRef.current.count = N;
-      wireRef.current.frustumCulled = false;
-    }
   }, [sourcePlacements]);
 
   useFrame(() => {
     const cur = currentPos.current;
     const shardMesh = shardRef.current;
-    const wireMesh = wireRef.current;
     if (
       !targetPlacements ||
       !sourcePlacements ||
       !baseQuats ||
       !cur ||
-      !shardMesh ||
-      !wireMesh
+      !shardMesh
     ) {
       return;
     }
@@ -215,16 +199,16 @@ export function AboutUsMetalButton() {
       ((hover && active ? ABOUT.hoverEmissive : 0) -
         shardMaterial.emissiveIntensity) *
       ABOUT.hoverLerp;
-    wireMaterial.color.lerp(targetWire, TUNING.paletteLerp);
-    wireMaterial.opacity = visibleOpacity * ABOUT.wireOpacity;
+    hoverAmp.current += ((hover && active ? 1 : 0) - hoverAmp.current) * 0.14;
+    clickBurst.current += (0 - clickBurst.current) * 0.08;
+    const spread =
+      hoverAmp.current * ABOUT.hoverSpread +
+      clickBurst.current * ABOUT.clickSpread;
 
     const m = new THREE.Matrix4();
     const pos = new THREE.Vector3();
-    const wirePos = new THREE.Vector3();
     const q = new THREE.Quaternion();
-    const wireQ = new THREE.Quaternion();
     const scale = new THREE.Vector3(1, 1, 1);
-    const halfShardH = ABOUT.shardHeight / 2;
 
     for (let i = 0; i < targetPlacements.length; i++) {
       const i3 = i * 3;
@@ -239,21 +223,26 @@ export function AboutUsMetalButton() {
       cur[i3 + 2] += (tz - cur[i3 + 2]) * 0.18;
 
       const i4 = i * 4;
-      q.set(baseQuats[i4], baseQuats[i4 + 1], baseQuats[i4 + 2], baseQuats[i4 + 3]);
-      pos.set(cur[i3], cur[i3 + 1], cur[i3 + 2]);
+      q.set(
+        baseQuats[i4],
+        baseQuats[i4 + 1],
+        baseQuats[i4 + 2],
+        baseQuats[i4 + 3],
+      );
+      let x = cur[i3];
+      let y = cur[i3 + 1];
+      let z = cur[i3 + 2];
+      if (separationDirs && spread > 0.001) {
+        x += separationDirs[i3] * spread;
+        y += separationDirs[i3 + 1] * spread;
+        z += separationDirs[i3 + 2] * spread;
+      }
+      pos.set(x, y, z);
       m.compose(pos, q, scale);
       shardMesh.setMatrixAt(i, m);
-
-      const topY = cur[i3 + 1] + halfShardH;
-      const wireLen = Math.max(0.001, ABOUT.localCeilingY - topY);
-      wirePos.set(cur[i3], topY + wireLen / 2, cur[i3 + 2]);
-      m.compose(wirePos, wireQ, scale.set(1, wireLen, 1));
-      wireMesh.setMatrixAt(i, m);
-      scale.set(1, 1, 1);
     }
 
     shardMesh.instanceMatrix.needsUpdate = true;
-    wireMesh.instanceMatrix.needsUpdate = true;
   });
 
   if (!targetPlacements) return null;
@@ -279,16 +268,13 @@ export function AboutUsMetalButton() {
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     unlockAudio();
+    clickBurst.current = 1;
     playSample(SOUND_ASSETS.routeSwell, 0.11, 0, 1.1, { reverbSend: 0.08 });
     setAboutMode();
   };
 
   return (
     <group>
-      <instancedMesh
-        ref={wireRef}
-        args={[wireGeometry, wireMaterial, targetPlacements.length]}
-      />
       <instancedMesh
         ref={shardRef}
         args={[shardGeometry, shardMaterial, targetPlacements.length]}

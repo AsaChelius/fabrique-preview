@@ -244,8 +244,8 @@ const BUTTON = {
    *  existing morph spring — the arrow just eases down into place. */
   expandedArrowDrop: -0.28,
   /** About mode uses a taller square plaque, so the back arrow sits
-   *  below the panel instead of inside the copy/figure composition. */
-  aboutArrowDrop: -0.74,
+   *  just inside the bottom of the panel instead of floating below it. */
+  aboutArrowDrop: -0.36,
 
   // ---- Back-arrow (shown when the showcase is open) ----
   /** Per-frame lerp toward the active layout (text or arrow). Low = slow
