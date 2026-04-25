@@ -1191,54 +1191,6 @@ body.sculpture-dark main > button {
   border-color: #6b6e76;
 }
 
-.sculpture-about-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 9rem;
-  height: 2.05rem;
-  padding: 0 1.1rem;
-  background: rgba(250, 248, 243, 0.72);
-  border: 1px solid rgba(44, 46, 51, 0.45);
-  color: #25272c;
-  font-family: var(--font-sans), Inter, system-ui, sans-serif;
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.22em;
-  line-height: 1;
-  text-transform: uppercase;
-  white-space: nowrap;
-  backdrop-filter: blur(8px);
-  transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
-}
-.sculpture-about-button:hover {
-  background: #25272c;
-  border-color: #25272c;
-  color: #faf8f3;
-  transform: translateY(-1px);
-}
-.sculpture-about-button:focus-visible {
-  outline: 2px solid #25272c;
-  outline-offset: 3px;
-}
-body.sculpture-dark .sculpture-about-button {
-  background: rgba(3, 4, 5, 0.62);
-  border-color: rgba(230, 228, 222, 0.45);
-  color: #e6e4de;
-}
-body.sculpture-dark .sculpture-about-button:hover {
-  background: #e6e4de;
-  border-color: #e6e4de;
-  color: #050706;
-}
-body.sculpture-dark .sculpture-about-button:focus-visible {
-  outline-color: #e6e4de;
-}
-
 /* ---- Showcase overlay ---
    Triggered by clicking NOS PROJETS. Letter shards morph into five card
    outlines (handled in the R3F scene); this overlay fades in on top
