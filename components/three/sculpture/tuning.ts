@@ -232,12 +232,12 @@ export const TUNING = {
   /** Subtle whole-sculpture inertia from pointer motion, even when the
    *  cursor is over empty space. Gives the parallax tilt a rubber-band
    *  feel because shards drag slightly behind mouse movement, then settle. */
-  globalPointerDragStrength: 0.9,
+  globalPointerDragStrength: 0.32,
   /** Cap per-frame whole-scene drag so fast mouse shakes stay controlled. */
-  globalPointerDragMax: 0.045,
+  globalPointerDragMax: 0.016,
   /** Horizontal mouse motion also nudges depth a little so the response
    *  feels dimensional instead of a flat XY slide. */
-  globalPointerDragZ: 0.22,
+  globalPointerDragZ: 0.1,
 
   // ---- Showcase (NOS PROJETS open state) ------------------------------
   /** Base HSL hue (0-1) per card, driving the chameleon color flow. Red,
