@@ -14,7 +14,7 @@
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
-import { Environment, MeshReflectorMaterial } from "@react-three/drei";
+import { Environment, Html, MeshReflectorMaterial } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { PerspectiveCamera as PerspectiveCameraImpl } from "three";
@@ -31,6 +31,7 @@ import {
   preloadSample,
   unlockAudio,
 } from "@/lib/sound";
+import { navigateWithFade } from "./route-transition";
 
 /** Generated gallery accents used for project-card hover/select. */
 const CARD_SELECT_URL = SOUND_ASSETS.cardSelect;
@@ -84,6 +85,7 @@ export function SculptureScene() {
         <SuspendedCloud />
         <ProjectsButton />
         <CardHitboxes />
+        <AboutUsButton />
 
         {/* Manual mirror. When palette.floorReflective is false we
             don't use drei's MeshReflectorMaterial (which can't produce
@@ -139,6 +141,41 @@ function MirrorBelow({
     >
       {children}
     </group>
+  );
+}
+
+function AboutUsButton() {
+  const [mode, setMode] = useState<ShowcaseMode>(() => getMode());
+  const y = SHOWCASE_LAYOUT.centerY + SHOWCASE_LAYOUT.cardH / 2 + 0.58;
+
+  useEffect(() => onModeChange((m) => setMode(m)), []);
+
+  if (mode !== "showcase") return null;
+
+  return (
+    <Html
+      center
+      position={[0, y, SHOWCASE_LAYOUT.centerZ]}
+      zIndexRange={[40, 20]}
+      style={{ pointerEvents: "auto" }}
+    >
+      <button
+        type="button"
+        className="sculpture-about-button"
+        onPointerEnter={() => {
+          playSample(HOVER_TICK_URL, 0.09, 0, undefined, {
+            reverbSend: 0.02,
+          });
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          unlockAudio();
+          navigateWithFade("/about");
+        }}
+      >
+        About Us
+      </button>
+    </Html>
   );
 }
 
