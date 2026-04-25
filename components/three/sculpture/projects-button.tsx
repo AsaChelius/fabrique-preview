@@ -228,12 +228,15 @@ const BUTTON = {
   tiltLerp: 0.12,
 
   // ---- Back-arrow extra Y offset while inside a project ----
+  /** Base vertical drop for the back-arrow once NOS PROJETS has morphed
+   *  into the project boxes. */
+  arrowBaseDrop: -0.34,
   /** When the user is in "expanded" mode (one of the 5 cards opened
    *  into the big merged box), the back-arrow slides down by this many
    *  world units so it sits clear of the expanded card's lower edge
    *  instead of poking into it. Lerp happens automatically via the
    *  existing morph spring — the arrow just eases down into place. */
-  expandedArrowDrop: -0.18,
+  expandedArrowDrop: -0.28,
 
   // ---- Back-arrow (shown when the showcase is open) ----
   /** Per-frame lerp toward the active layout (text or arrow). Low = slow
@@ -500,6 +503,11 @@ export function ProjectsButton() {
   // Hitbox dimensions in world units: use label half-width + padding.
   const halfW = TUNING.buttonHalfWidth + BUTTON.hitPaddingX;
   const halfH = TUNING.buttonHalfHeight + BUTTON.hitPaddingY;
+  const hitboxY = showcase
+    ? TUNING.buttonCenterY +
+      BUTTON.arrowBaseDrop +
+      (mode === "expanded" ? BUTTON.expandedArrowDrop : 0)
+    : TUNING.buttonCenterY;
 
   const onOver = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
@@ -531,7 +539,7 @@ export function ProjectsButton() {
       {/* Transparent hit-plane positioned at the button's z=0 center. Must
           be large enough to be easy to hover with a cursor. */}
       <mesh
-        position={[0, TUNING.buttonCenterY, 0]}
+        position={[0, hitboxY, 0]}
         onPointerOver={onOver}
         onPointerOut={onOut}
         onClick={onClick}
@@ -635,9 +643,9 @@ function mulberry32(seed: number): () => number {
  */
 function computeArrowPlacements(textCount: number): Placement[] {
   const rand = mulberry32(0x4a2e0b1d);
-  // Sit a touch below where the "NOS PROJETS" label lived so the arrow
+  // Sit below where the "NOS PROJETS" label lived so the arrow
   // reads as a secondary/back affordance, not a drop-in replacement.
-  const cy = TUNING.buttonCenterY - 0.15;
+  const cy = TUNING.buttonCenterY + BUTTON.arrowBaseDrop;
   const shaftHalf = BUTTON.arrowShaftHalfLength;
   const shaftThick = BUTTON.arrowShaftThickness;
   const chevLen = BUTTON.arrowChevronLength;
