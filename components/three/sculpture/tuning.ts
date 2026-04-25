@@ -229,6 +229,15 @@ export const TUNING = {
   /** Per-frame lerp factor toward the target tilted position. Low = smooth
    *  follow, never a snap. */
   tiltLerp: 0.18,
+  /** Subtle whole-sculpture inertia from pointer motion, even when the
+   *  cursor is over empty space. Gives the parallax tilt a rubber-band
+   *  feel because shards drag slightly behind mouse movement, then settle. */
+  globalPointerDragStrength: 0.9,
+  /** Cap per-frame whole-scene drag so fast mouse shakes stay controlled. */
+  globalPointerDragMax: 0.045,
+  /** Horizontal mouse motion also nudges depth a little so the response
+   *  feels dimensional instead of a flat XY slide. */
+  globalPointerDragZ: 0.22,
 
   // ---- Showcase (NOS PROJETS open state) ------------------------------
   /** Base HSL hue (0-1) per card, driving the chameleon color flow. Red,
@@ -269,13 +278,13 @@ export const TUNING = {
 
   /** Extra physical response when the pointer shakes over a project card.
    *  Applied only to shards belonging to the hovered card. */
-  cardImpulseStrength: 1.9,
+  cardImpulseStrength: 0.95,
   /** Cap for one pointer-move impulse so fast mouse movement feels lively
    *  without exploding the pendulum state. */
-  cardImpulseMax: 0.16,
+  cardImpulseMax: 0.08,
   /** Tiny depth kick from horizontal movement so the boxes feel 3D, not
    *  just like a flat XY ripple. */
-  cardImpulseZ: 0.38,
+  cardImpulseZ: 0.24,
 
   /** Snake-style flow along the card outlines. Each outline shard gets
    *  pushed along its edge direction by a traveling sine wave — same

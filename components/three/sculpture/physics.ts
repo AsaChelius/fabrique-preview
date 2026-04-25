@@ -89,6 +89,8 @@ export function stepPhysics(
   cursorY: number,
   dt: number,
   cursorActive: boolean,
+  globalDragX = 0,
+  globalDragY = 0,
 ): void {
   const N = state.count;
   const h = state.home;
@@ -101,9 +103,19 @@ export function stepPhysics(
   const R = TUNING.cursorRadius;
   const Rsq = R * R;
   const pushStrength = TUNING.cursorStrength;
+  const globalMax = TUNING.globalPointerDragMax;
+  const globalX = Math.max(
+    -globalMax,
+    Math.min(globalMax, globalDragX * TUNING.globalPointerDragStrength),
+  );
+  const globalY = Math.max(
+    -globalMax,
+    Math.min(globalMax, globalDragY * TUNING.globalPointerDragStrength),
+  );
 
   const cappedDt = Math.min(dt, TUNING.physicsMaxDt);
   const dampFactor = Math.exp(-D * cappedDt);
+  const hasGlobalDrag = Math.abs(globalX) > 1e-5 || Math.abs(globalY) > 1e-5;
 
   for (let i = 0; i < N; i++) {
     const i3 = i * 3;
@@ -132,6 +144,15 @@ export function stepPhysics(
     }
 
     // Spring restoring force — pendulum-like, stiffer on short wires.
+    if (hasGlobalDrag) {
+      const n = Math.sin((i + 1) * 12.9898) * 43758.5453;
+      const jitter = 0.72 + (n - Math.floor(n)) * 0.56;
+      const zSign = i % 2 === 0 ? 1 : -1;
+      v[i3] += globalX * jitter;
+      v[i3 + 1] += globalY * 0.72 * jitter;
+      v[i3 + 2] += globalX * TUNING.globalPointerDragZ * zSign * jitter;
+    }
+
     const k = G * invL[i];
     v[i3]     -= k * o[i3]     * cappedDt;
     v[i3 + 1] -= k * o[i3 + 1] * cappedDt;

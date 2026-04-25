@@ -34,6 +34,8 @@ export function ShardPhysicsDriver({
     [],
   );
   const cursorWorld = useRef(new THREE.Vector3());
+  const prevCursorWorld = useRef(new THREE.Vector3());
+  const hasPrevCursorWorld = useRef(false);
   const cursorActiveRef = useRef(false);
 
   // Track whether the cursor is over the canvas. Canvas covers the
@@ -45,6 +47,7 @@ export function ShardPhysicsDriver({
     };
     const onLeave = () => {
       cursorActiveRef.current = false;
+      hasPrevCursorWorld.current = false;
     };
     canvas.addEventListener("pointerenter", onEnter);
     canvas.addEventListener("pointerleave", onLeave);
@@ -61,17 +64,29 @@ export function ShardPhysicsDriver({
       raycaster.setFromCamera(pointer, camera);
       const hit = raycaster.ray.intersectPlane(zPlane, cursorWorld.current);
       if (hit) {
+        let dragX = 0;
+        let dragY = 0;
+        if (hasPrevCursorWorld.current) {
+          dragX = cursorWorld.current.x - prevCursorWorld.current.x;
+          dragY = cursorWorld.current.y - prevCursorWorld.current.y;
+        } else {
+          hasPrevCursorWorld.current = true;
+        }
+        prevCursorWorld.current.copy(cursorWorld.current);
         stepPhysics(
           state,
           cursorWorld.current.x,
           cursorWorld.current.y,
           dt,
           true,
+          dragX,
+          dragY,
         );
         return;
       }
     }
     // No cursor — integrate with cursor disabled so shards settle.
+    hasPrevCursorWorld.current = false;
     stepPhysics(state, 0, 0, dt, false);
   });
 
