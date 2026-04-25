@@ -54,10 +54,10 @@ export const TUNING = {
 
   // ---- Shard counts ---------------------------------------------------
   /** Shards forming the letters. Denser now for crisper silhouette edges. */
-  letterShardCount: 5200,
+  letterShardCount: 5800,
   /** Shards forming the surrounding plaque. Dense enough that the plaque
    *  reads as a solid metallic sheet rather than implied geometry. */
-  frameShardCount: 7000,
+  frameShardCount: 8000,
 
   // ---- Shard geometry (world units) -----------------------------------
   /** Long vertical dimension — these are hung vertically, long axis = Y. */

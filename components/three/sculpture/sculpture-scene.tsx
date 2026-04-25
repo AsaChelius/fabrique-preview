@@ -303,7 +303,13 @@ function CardHitboxes() {
 
   useEffect(() => {
     if (mode !== "about") return;
-    const goBack = () => setShowcaseMode("showcase");
+    const goBack = () => {
+      unlockAudio();
+      playSample(SOUND_ASSETS.cardSelect, 0.18, 0, 0.24, {
+        reverbSend: 0.04,
+      });
+      setShowcaseMode("showcase");
+    };
     window.addEventListener("pointerdown", goBack);
     return () => window.removeEventListener("pointerdown", goBack);
   }, [mode]);
@@ -311,19 +317,7 @@ function CardHitboxes() {
   if (mode === "off") return null;
 
   if (mode === "about") {
-    return (
-      <mesh
-        position={[0, SHOWCASE_LAYOUT.centerY, SHOWCASE_LAYOUT.centerZ + 1.6]}
-        onClick={(e) => {
-          e.stopPropagation();
-          setShowcaseMode("showcase");
-        }}
-        visible={false}
-      >
-        <planeGeometry args={[14, 9]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-      </mesh>
-    );
+    return null;
   }
 
   // Expanded mode: a single big hit-plane covering the merged box.

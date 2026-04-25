@@ -55,8 +55,8 @@ const ABOUT_PANEL = {
   size: 5.65,
   centerY: 0.48,
   centerZ: 0,
-  depth: 2.55,
-  borderJitter: 0.055,
+  depth: 1.85,
+  borderJitter: 0.038,
   sampleSize: 1800,
   alphaThreshold: 140,
   textInset: 0.78,
@@ -352,14 +352,15 @@ export function computeAboutFrameHomes(count: number): ShowcaseHomes {
 
   const positions = new Float32Array(count * 3);
   const cardIndex = new Int8Array(count);
+  const edgeFlow = new Float32Array(count * 4);
   const rand = mulberry32(0xabf2a4e0);
   const half = ABOUT_PANEL.size / 2;
   const hd = ABOUT_PANEL.depth / 2;
 
   const edgeWeights = [
-    0.018, 0.17, 0.045, 0.045,
-    0.018, 0.17, 0.045, 0.045,
-    0.15, 0.028, 0.15, 0.028,
+    0.14, 0.02, 0.09, 0.09,
+    0.14, 0.02, 0.09, 0.09,
+    0.006, 0.15, 0.006, 0.15,
   ] as const;
 
   for (let i = 0; i < count; i++) {
@@ -370,6 +371,9 @@ export function computeAboutFrameHomes(count: number): ShowcaseHomes {
     let x = 0;
     let y = 0;
     let z = 0;
+    let dx = 0;
+    let dy = 0;
+    let dz = 0;
 
     if (edge < 8) {
       z = edge < 4 ? hd : -hd;
@@ -377,31 +381,40 @@ export function computeAboutFrameHomes(count: number): ShowcaseHomes {
       if (side === 0) {
         x = t * half;
         y = half + j1;
+        dx = 1;
       } else if (side === 1) {
         x = t * half;
         y = -half + j1;
+        dx = 1;
       } else if (side === 2) {
         x = -half + j1;
         y = t * half;
+        dy = 1;
       } else {
         x = half + j1;
         y = t * half;
+        dy = 1;
       }
     } else {
       const corner = edge - 8;
       x = corner < 2 ? -half + j1 : half + j1;
       y = corner === 0 || corner === 2 ? -half + j2 : half + j2;
       z = t * hd;
+      dz = 1;
     }
 
     positions[i * 3] = x;
     positions[i * 3 + 1] = ABOUT_PANEL.centerY + y;
     positions[i * 3 + 2] = ABOUT_PANEL.centerZ + z;
     cardIndex[i] = 1;
+    edgeFlow[i * 4] = dx;
+    edgeFlow[i * 4 + 1] = dy;
+    edgeFlow[i * 4 + 2] = dz;
+    edgeFlow[i * 4 + 3] = (t + 1) * 0.5;
   }
 
   cachedAboutFrameCount = count;
-  cachedAboutFrameHomes = { positions, cardIndex, edgeFlow: null };
+  cachedAboutFrameHomes = { positions, cardIndex, edgeFlow };
   return cachedAboutFrameHomes;
 }
 

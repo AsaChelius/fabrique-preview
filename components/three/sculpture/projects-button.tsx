@@ -596,6 +596,9 @@ export function ProjectsButton() {
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     unlockAudio();
+    if (mode === "off" && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("sculpture-force-dark"));
+    }
     preloadSample(CYMBAL_URL);
     handleCymbalToggle();
     toggleShowcase();

@@ -34,6 +34,9 @@ export type ShowcaseRef = {
   /** (dx, dy, dz, t) per shard for outline meshes. Drives the snake
    *  wave flow along each card edge. Null for interior-fill meshes. */
   edgeFlow: Float32Array | null;
+  /** True for sculptural edge targets that should turn each metal strip
+   *  along its assigned edge instead of keeping the original hanging yaw. */
+  orientToEdge: boolean;
   /** 0..4 when the cursor is hovering that card's hitbox — shards
    *  whose `cardIndex` matches get a glow boost on their chameleon
    *  color (brighter + more saturated). Null = no hover. */
@@ -234,6 +237,9 @@ export function Shards({
     const incomingEdge = showcaseRef.current.edgeFlow;
     if (incomingEdge) cachedEdgeFlow.current = incomingEdge;
     const edgeFlow = cachedEdgeFlow.current;
+    const orientEdgeFlow = showcaseRef.current.orientToEdge
+      ? showcaseRef.current.edgeFlow
+      : null;
     const hoveredCard = showcaseRef.current.hoveredCard;
     const dominantCard = showcaseRef.current.dominantCard;
 
@@ -297,12 +303,32 @@ export function Shards({
         s.home[h3 + 1] + s.offset[h3 + 1] + bob + dy,
         s.home[h3 + 2] + s.offset[h3 + 2] + dz,
       );
-      quat.set(
-        baseQuats[i * 4],
-        baseQuats[i * 4 + 1],
-        baseQuats[i * 4 + 2],
-        baseQuats[i * 4 + 3],
-      );
+      if (orientEdgeFlow) {
+        const e4 = i * 4;
+        _tmpDir.set(
+          orientEdgeFlow[e4],
+          orientEdgeFlow[e4 + 1],
+          orientEdgeFlow[e4 + 2],
+        );
+        if (_tmpDir.lengthSq() > 0.0001) {
+          _tmpDir.normalize();
+          quat.setFromUnitVectors(_localShardUp, _tmpDir);
+        } else {
+          quat.set(
+            baseQuats[i * 4],
+            baseQuats[i * 4 + 1],
+            baseQuats[i * 4 + 2],
+            baseQuats[i * 4 + 3],
+          );
+        }
+      } else {
+        quat.set(
+          baseQuats[i * 4],
+          baseQuats[i * 4 + 1],
+          baseQuats[i * 4 + 2],
+          baseQuats[i * 4 + 3],
+        );
+      }
       m.compose(pos, quat, scale);
       mesh.setMatrixAt(i, m);
 
@@ -378,6 +404,8 @@ export function Shards({
 // ---- Chameleon color ----------------------------------------------------
 
 const _tmpColor = new THREE.Color();
+const _tmpDir = new THREE.Vector3();
+const _localShardUp = new THREE.Vector3(0, 1, 0);
 
 function chameleonColor(
   cardIdx: number,

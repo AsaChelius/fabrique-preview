@@ -52,7 +52,7 @@ export type SculpturePalette = {
 const LIGHT: SculpturePalette = {
   background: TUNING.backgroundColor,
   letterShard: TUNING.letterShardColor,
-  frameShard: TUNING.frameShardColor,
+  frameShard: "#8f949a",
   // Floor stays visible as its own surface; reflection rides on top.
   floor: TUNING.floorColor,
   floorReflective: true,
@@ -65,7 +65,7 @@ const LIGHT: SculpturePalette = {
   ceilingBeam: TUNING.ceilingBeamColor,
   projectsBase: "#5a5e66",
   projectsEmissive: "#ffd48a",
-  projectsWire: "#9aa0a8",
+  projectsWire: "#6f747a",
   keyLight: "#fff4e0",
   fillLight: "#d0dbee",
   rimLight: "#ffffff",

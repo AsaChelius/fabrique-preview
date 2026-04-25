@@ -54,6 +54,18 @@ export function SculptureRoute() {
     document.body.classList.toggle("sculpture-dark", dark);
   }, [dark]);
 
+  useEffect(() => {
+    const forceDark = () => {
+      unlockAudio();
+      playSample(LIGHT_SWITCH_URL, 0.38, 0, undefined, {
+        reverbSend: 0.06,
+      });
+      setDark(true);
+    };
+    window.addEventListener("sculpture-force-dark", forceDark);
+    return () => window.removeEventListener("sculpture-force-dark", forceDark);
+  }, []);
+
   return (
     <main>
       <div className="sculpture-root">

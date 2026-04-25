@@ -80,6 +80,7 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
     active: false,
     cardIndex: null,
     edgeFlow: null,
+    orientToEdge: false,
     hoveredCard: null,
     dominantCard: null,
   });
@@ -87,6 +88,7 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
     active: false,
     cardIndex: null,
     edgeFlow: null,
+    orientToEdge: false,
     hoveredCard: null,
     dominantCard: null,
   });
@@ -134,6 +136,7 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
           active: true,
           cardIndex: letterResult.cardIndex,
           edgeFlow: letterResult.edgeFlow,
+          orientToEdge: false,
           hoveredCard: prevHoveredL,
           dominantCard: null,
         };
@@ -144,6 +147,7 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
           active: true,
           cardIndex: frameResult.cardIndex,
           edgeFlow: frameResult.edgeFlow,
+          orientToEdge: false,
           hoveredCard: prevHoveredF,
           dominantCard: null,
         };
@@ -154,6 +158,7 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
           active: true,
           cardIndex: letterResult.cardIndex,
           edgeFlow: letterResult.edgeFlow,
+          orientToEdge: false,
           hoveredCard: null,
           dominantCard: expandedCard,
         };
@@ -164,6 +169,7 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
           active: true,
           cardIndex: frameResult.cardIndex,
           edgeFlow: frameResult.edgeFlow,
+          orientToEdge: false,
           hoveredCard: null,
           dominantCard: expandedCard,
         };
@@ -174,6 +180,7 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
           active: false,
           cardIndex: letterResult.cardIndex,
           edgeFlow: letterResult.edgeFlow,
+          orientToEdge: false,
           hoveredCard: null,
           dominantCard: null,
         };
@@ -184,6 +191,7 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
           active: false,
           cardIndex: frameResult.cardIndex,
           edgeFlow: frameResult.edgeFlow,
+          orientToEdge: true,
           hoveredCard: null,
           dominantCard: null,
         };
@@ -198,6 +206,7 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
           active: false,
           cardIndex: null,
           edgeFlow: null,
+          orientToEdge: false,
           hoveredCard: null,
           dominantCard: null,
         };
@@ -205,6 +214,7 @@ export function SuspendedCloud({ interactive = true }: { interactive?: boolean }
           active: false,
           cardIndex: null,
           edgeFlow: null,
+          orientToEdge: false,
           hoveredCard: null,
           dominantCard: null,
         };
