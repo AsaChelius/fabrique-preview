@@ -55,13 +55,12 @@ const ABOUT_PANEL = {
   size: 5.65,
   centerY: 0.48,
   centerZ: 0,
-  depth: 1.35,
-  borderJitter: 0.045,
-  fillJitter: 0.035,
+  depth: 2.35,
+  borderJitter: 0.055,
   sampleSize: 1800,
   alphaThreshold: 140,
   textInset: 0.78,
-  contentDepth: 0.62,
+  contentDepth: 0.82,
 } as const;
 
 let cachedAboutLetterCount = -1;
@@ -284,9 +283,9 @@ export function computeExpandedFrameHomes(count: number): ShowcaseHomes {
 
 /**
  * About mode — the whole FABRIQUE sculpture becomes a single suspended
- * metal plaque. Letter shards resolve into the readable copy + two human
- * silhouettes; frame shards form the square plate, border, and interior
- * metal field behind it.
+ * metal plaque. Letter shards resolve into two human silhouettes; frame
+ * shards become a deep lower plinth/case. Keeping the upper center clear
+ * avoids the old falling-rain read behind the copy.
  */
 export function computeAboutLetterHomes(count: number): ShowcaseHomes {
   if (cachedAboutLetterHomes && cachedAboutLetterCount === count) {
@@ -317,39 +316,23 @@ export function computeAboutLetterHomes(count: number): ShowcaseHomes {
   drawHumanSilhouette(ctx, W * 0.83, H * 0.62, W * 0.135);
 
   const inside = sampledPixels(ctx, W, H);
-  const textPixels = inside.filter((pick) => {
-    const px = pick % W;
-    return px > W * 0.24 && px < W * 0.76;
-  });
-  const figurePixels = inside.filter((pick) => {
-    const px = pick % W;
-    return px <= W * 0.24 || px >= W * 0.76;
-  });
   const positions = new Float32Array(count * 3);
   const cardIndex = new Int8Array(count);
   const rand = mulberry32(0xab047500);
   const half = ABOUT_PANEL.size / 2;
   const contentHalf = half * ABOUT_PANEL.textInset;
-  const textCount = Math.floor(count * 0.76);
 
   for (let i = 0; i < count; i++) {
-    const pool =
-      i < textCount
-        ? textPixels.length > 0
-          ? textPixels
-          : inside
-        : figurePixels.length > 0
-          ? figurePixels
-          : inside;
-    const pick = pool[(rand() * pool.length) | 0] ?? 0;
+    const pick = inside[(rand() * inside.length) | 0] ?? 0;
     const px = pick % W;
     const py = (pick / W) | 0;
     const nx = (px / W) * 2 - 1;
     const ny = -((py / H) * 2 - 1);
+    const figureDepth = px < W / 2 ? -0.36 : 0.36;
+    const u = rand() * 2 - 1;
     const dz =
-      Math.sign(rand() * 2 - 1) *
-      Math.pow(Math.abs(rand() * 2 - 1), 1.9) *
-      ABOUT_PANEL.contentDepth;
+      figureDepth +
+      Math.sign(u) * Math.pow(Math.abs(u), 1.75) * ABOUT_PANEL.contentDepth;
 
     positions[i * 3] = nx * contentHalf;
     positions[i * 3 + 1] = ABOUT_PANEL.centerY + ny * contentHalf;
@@ -372,45 +355,38 @@ export function computeAboutFrameHomes(count: number): ShowcaseHomes {
   const rand = mulberry32(0xabf2a4e0);
   const half = ABOUT_PANEL.size / 2;
   const hd = ABOUT_PANEL.depth / 2;
-  const borderCount = Math.floor(count * 0.52);
-  const faceCount = count - borderCount;
 
-  for (let i = 0; i < borderCount; i++) {
-    const side = i % 4;
+  for (let i = 0; i < count; i++) {
+    const roll = rand();
     const t = rand() * 2 - 1;
-    const z = (rand() * 2 - 1) * hd;
-    const j = (rand() - 0.5) * ABOUT_PANEL.borderJitter;
+    const j1 = (rand() - 0.5) * ABOUT_PANEL.borderJitter;
+    const j2 = (rand() - 0.5) * ABOUT_PANEL.borderJitter;
     let x = 0;
     let y = 0;
-    if (side === 0) {
+    let z = 0;
+
+    if (roll < 0.66) {
+      // Deep bottom shelf: this gives the panel weight without filling
+      // the whole face with vertical strips.
+      x = t * half * 0.92;
+      y = -half * 0.86 + j1 * 2.2;
+      z = (rand() * 2 - 1) * hd;
+    } else if (roll < 0.84) {
+      // Front/back lower rails.
       x = t * half;
-      y = half + j;
-    } else if (side === 1) {
-      x = t * half;
-      y = -half + j;
-    } else if (side === 2) {
-      x = -half + j;
-      y = t * half;
+      y = -half + j1;
+      z = roll < 0.75 ? hd : -hd;
     } else {
-      x = half + j;
-      y = t * half;
+      // Short side rails only in the lower half.
+      x = roll < 0.92 ? -half + j1 : half + j1;
+      y = -half + (rand() * 0.48 + 0.05) * half + j2;
+      z = (rand() * 2 - 1) * hd;
     }
+
     positions[i * 3] = x;
     positions[i * 3 + 1] = ABOUT_PANEL.centerY + y;
     positions[i * 3 + 2] = ABOUT_PANEL.centerZ + z;
     cardIndex[i] = 1;
-  }
-
-  for (let i = 0; i < faceCount; i++) {
-    const idx = borderCount + i;
-    const inset = half * 0.92;
-    positions[idx * 3] = (rand() * 2 - 1) * inset;
-    positions[idx * 3 + 1] =
-      ABOUT_PANEL.centerY +
-      (rand() * 2 - 1) * inset +
-      (rand() - 0.5) * ABOUT_PANEL.fillJitter;
-    positions[idx * 3 + 2] = ABOUT_PANEL.centerZ + (rand() * 2 - 1) * hd;
-    cardIndex[idx] = 1;
   }
 
   cachedAboutFrameCount = count;

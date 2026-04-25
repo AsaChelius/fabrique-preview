@@ -245,7 +245,7 @@ const BUTTON = {
   expandedArrowDrop: -0.28,
   /** About mode uses a taller square plaque, so the back arrow sits
    *  below the panel instead of inside the copy/figure composition. */
-  aboutArrowDrop: -0.18,
+  aboutArrowDrop: -0.74,
 
   // ---- Back-arrow (shown when the showcase is open) ----
   /** Per-frame lerp toward the active layout (text or arrow). Low = slow
