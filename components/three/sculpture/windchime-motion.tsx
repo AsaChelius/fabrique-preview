@@ -29,10 +29,11 @@ import {
  */
 const CHIME_CLIPS = SOUND_ASSETS.shardChimes;
 
-// Min ms between chime triggers. Clips are ~1s max, so a short cooldown
+// Min ms between chime triggers. Clips are short metallic ticks, so this
+// stays responsive without turning cursor motion into a pitched run.
 // keeps the shimmer responsive without stacking — the layer-ducking
 // fader handles overlap when triggers do collide.
-const COOLDOWN_MS = 60;
+const COOLDOWN_MS = 90;
 
 // Min pointer speed (px/ms) to fire. Dropped to 0.05 so even slow drifts
 // through the shards register immediately — the previous 0.18 caused
@@ -42,7 +43,7 @@ const VELOCITY_THRESHOLD = 0.05;
 // Pointer speed at which we hit max volume.
 const VELOCITY_FOR_MAX_VOL = 3.0;
 
-const MAX_VOLUME = 0.34;
+const MAX_VOLUME = 0.26;
 
 export function WindchimeMotion() {
   useEffect(() => {
@@ -104,11 +105,10 @@ export function WindchimeMotion() {
       let idx = Math.floor(Math.random() * (CHIME_CLIPS.length - 1));
       if (idx >= lastClipIdx) idx++;
       lastClipIdx = idx;
-      // reverbSend = 0.48 sends a healthy parallel signal to the shared
-      // convolver bus → ~3.6s reverb tail per hit. Stacks across rapid
-      // strikes into a continuous shimmer wash.
+      // Small reverb send gives the metal hits room without turning cursor
+      // movement into a wind-chime wash.
       const fresh = playSample(CHIME_CLIPS[idx], vol, 0, undefined, {
-        reverbSend: 0.48,
+        reverbSend: 0.24,
       });
       layers.push(fresh);
       // Drop the oldest if we've exceeded the cap so the array doesn't

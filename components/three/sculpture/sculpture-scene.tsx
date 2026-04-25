@@ -228,7 +228,7 @@ function CardHitPlane({
     setHoveredCard(idx);
     document.body.style.cursor = "pointer";
     setCursorHover(true);
-    playSample(HOVER_TICK_URL, 0.18, 0, undefined, { reverbSend: 0.08 });
+    playSample(HOVER_TICK_URL, 0.12, 0, undefined, { reverbSend: 0.03 });
     // Warm the chime cache on first hover so the click sound fires
     // instantly with no fetch/decode delay.
     preloadSample(SELECT_CHIME_URL);
@@ -242,7 +242,7 @@ function CardHitPlane({
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     unlockAudio();
-    playSample(SELECT_CHIME_URL, 0.46, 0, undefined, { reverbSend: 0.22 });
+    playSample(SELECT_CHIME_URL, 0.32, 0, undefined, { reverbSend: 0.08 });
     expandCard(idx);
   };
   return (

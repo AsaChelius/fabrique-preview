@@ -282,8 +282,8 @@ function CircleHitTargets() {
                 setHovered(idx);
                 setCursorHover(true);
                 document.body.style.cursor = "pointer";
-                playSample(SOUND_ASSETS.ringHover, 0.28, 0, undefined, {
-                  reverbSend: 0.14,
+                playSample(SOUND_ASSETS.ringHover, 0.16, 0, undefined, {
+                  reverbSend: 0.04,
                 });
               }}
               onPointerOut={(e: ThreeEvent<PointerEvent>) => {
@@ -298,8 +298,8 @@ function CircleHitTargets() {
                 e.stopPropagation();
                 unlockAudio();
                 setSelected(idx);
-                playSample(SOUND_ASSETS.ringSelect, 0.42, 0, undefined, {
-                  reverbSend: 0.26,
+                playSample(SOUND_ASSETS.ringSelect, 0.34, 0, undefined, {
+                  reverbSend: 0.12,
                 });
               }}
               visible={false}

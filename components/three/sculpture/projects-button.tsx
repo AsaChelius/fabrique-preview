@@ -505,8 +505,8 @@ export function ProjectsButton() {
     e.stopPropagation();
     setHover(true);
     setCursorHover(true);
-    playSample(SOUND_ASSETS.galleryHover, 0.16, 0, undefined, {
-      reverbSend: 0.08,
+    playSample(SOUND_ASSETS.galleryHover, 0.11, 0, undefined, {
+      reverbSend: 0.03,
     });
   };
   const onOut = (e: ThreeEvent<PointerEvent>) => {

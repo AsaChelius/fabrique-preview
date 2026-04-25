@@ -58,6 +58,7 @@ export const SOUND_ASSETS = {
   ringHover: "/sounds/fabrique-ring-hover.wav",
   ringSelect: "/sounds/fabrique-ring-select.wav",
   lightToggle: "/sounds/fabrique-light-toggle.wav",
+  galleryIdle: "/sounds/fabrique-gallery-idle.wav",
   shardChimes: [
     "/sounds/fabrique-shard-chime-a.wav",
     "/sounds/fabrique-shard-chime-b.wav",

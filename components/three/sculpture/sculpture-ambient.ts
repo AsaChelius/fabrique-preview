@@ -12,6 +12,7 @@
  */
 
 import {
+  SOUND_ASSETS,
   playSampleLoop,
   suspendAmbient,
   resumeAmbient,
@@ -21,11 +22,15 @@ import {
 
 const AMBIENT_URL = "/sounds/ambiencesoundnew.mp3";
 const ALARM_URL = "/sounds/alarmtest.mp3";
+const GALLERY_IDLE_URL = SOUND_ASSETS.galleryIdle;
 
 // Bed level (the new ambiencesoundnew.mp3) — sits underneath everything.
 const AMBIENT_VOLUME = 0.14;
 // Alarm layered on top.
 const ALARM_VOLUME = 0.075;
+// Sparse metal creaks/ticks behind the bed. Kept low so it reads as room
+// tone, not another foreground interaction layer.
+const GALLERY_IDLE_VOLUME = 0.06;
 
 // Tiny grace window: if a sculpture route unmounts and another mounts
 // within this many ms (i.e. /title → /projects), we don't actually stop
@@ -34,6 +39,7 @@ const HANDOFF_GRACE_MS = 350;
 
 let active: SampleHandle | null = null;
 let alarm: SampleHandle | null = null;
+let galleryIdle: SampleHandle | null = null;
 let refcount = 0;
 let pendingStopId: number | null = null;
 
@@ -49,6 +55,7 @@ function startWithAutoUnlock() {
   unlockAudio();
   active = playSampleLoop(AMBIENT_URL, AMBIENT_VOLUME, true);
   alarm = playSampleLoop(ALARM_URL, ALARM_VOLUME);
+  galleryIdle = playSampleLoop(GALLERY_IDLE_URL, GALLERY_IDLE_VOLUME);
 
   // If audio is still suspended (autoplay-blocked), arm one-shot
   // listeners that resume the context the moment the user does anything.
@@ -86,7 +93,7 @@ export function attachSculptureAmbient(): () => void {
     pendingStopId = null;
   }
 
-  if (!active && !alarm) {
+  if (!active && !alarm && !galleryIdle) {
     // Hard-suspend the synth ambient. This both stops it if currently
     // running AND blocks future startAmbient() calls (e.g. RouteNav's
     // delayed kick on first user interaction) so the hum can't sneak
@@ -107,6 +114,8 @@ export function attachSculptureAmbient(): () => void {
       active = null;
       alarm?.stop(700);
       alarm = null;
+      galleryIdle?.stop(900);
+      galleryIdle = null;
       // Lift the suspend so other routes CAN call startAmbient if they
       // want to, but don't auto-restart it ourselves — the synth's
       // pentatonic chime timer was bleeding through as elevator-music
