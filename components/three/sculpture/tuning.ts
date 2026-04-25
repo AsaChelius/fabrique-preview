@@ -223,9 +223,9 @@ export const TUNING = {
    *  from a more pronounced parallax. FABRIQUE still resolves near
    *  the sweet-spot; the illusion just softens at the edges, which is
    *  worth it for the extra dimensionality on the cards. */
-  tiltAmountX: 0.38,
+  tiltAmountX: 0.2,
   /** Peak camera Y offset (world units) when mouse is at the vertical edge. */
-  tiltAmountY: 0.24,
+  tiltAmountY: 0.12,
   /** Per-frame lerp factor toward the target tilted position. Low = smooth
    *  follow, never a snap. */
   tiltLerp: 0.18,
