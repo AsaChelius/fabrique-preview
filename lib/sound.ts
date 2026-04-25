@@ -54,6 +54,7 @@ let reverbWetIn: GainNode | null = null;
 export const SOUND_ASSETS = {
   galleryHover: "/sounds/fabrique-gallery-hover.wav",
   gallerySelect: "/sounds/fabrique-gallery-select.wav",
+  cardSelect: "/sounds/fabrique-card-select.wav",
   routeSwell: "/sounds/fabrique-route-swell.wav",
   ringHover: "/sounds/fabrique-ring-hover.wav",
   ringSelect: "/sounds/fabrique-ring-select.wav",

@@ -33,7 +33,7 @@ import {
 } from "@/lib/sound";
 
 /** Generated gallery accents used for project-card hover/select. */
-const SELECT_CHIME_URL = SOUND_ASSETS.gallerySelect;
+const CARD_SELECT_URL = SOUND_ASSETS.cardSelect;
 const HOVER_TICK_URL = SOUND_ASSETS.galleryHover;
 import { SHOWCASE_LAYOUT } from "./showcase-targets";
 import {
@@ -48,7 +48,7 @@ import {
 export function SculptureScene() {
   const palette = useSculpturePalette();
   useEffect(() => {
-    preloadSample(SELECT_CHIME_URL);
+    preloadSample(CARD_SELECT_URL);
     preloadSample(HOVER_TICK_URL);
   }, []);
   return (
@@ -257,7 +257,7 @@ function CardHitPlane({
     playSample(HOVER_TICK_URL, 0.12, 0, undefined, { reverbSend: 0.03 });
     // Warm the select-hit cache on first hover so the click sound fires
     // instantly with no fetch/decode delay.
-    preloadSample(SELECT_CHIME_URL);
+    preloadSample(CARD_SELECT_URL);
   };
   const onOut = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
@@ -269,7 +269,7 @@ function CardHitPlane({
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     unlockAudio();
-    playSample(SELECT_CHIME_URL, 0.34, 0, undefined, { reverbSend: 0.025 });
+    playSample(CARD_SELECT_URL, 0.36, 0, 0.38, { reverbSend: 0.04 });
     expandCard(idx);
   };
   return (
