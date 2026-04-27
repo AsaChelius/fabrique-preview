@@ -134,6 +134,22 @@ export function SculptureRoute() {
       >
         Replay
       </button>
+      {/* "Old" button — links to /old, the original FABRIQUE physics-
+          letter hero we replaced with this anamorphic sculpture. Lets
+          visitors compare the two versions of the title page. */}
+      <a
+        href="/old"
+        aria-label="View the original FABRIQUE hero"
+        style={{
+          ...pillStyle,
+          bottom: "2rem",
+          left: "2rem",
+          textDecoration: "none",
+          display: "inline-block",
+        }}
+      >
+        Old
+      </a>
       {/* Background-mode picker — three explicit buttons in a row. The
           active mode reads as a filled pill, inactive ones as outline. */}
       <div
