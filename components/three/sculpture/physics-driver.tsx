@@ -83,21 +83,29 @@ export function ShardPhysicsDriver({
 
   // Track whether the cursor is over the canvas. Canvas covers the
   // viewport on this route, so pointer leaving the window is enough.
+  //
+  // We listen on pointermove in addition to pointerenter because if the
+  // cursor is already over the canvas at mount (very common — the canvas
+  // covers the entire viewport on /title), pointerenter never fires and
+  // cursor physics stay dormant until the user moves the mouse out and
+  // back in. The first pointermove is enough to flip the latch on.
   useEffect(() => {
     const canvas = gl.domElement;
-    const onEnter = () => {
+    const activate = () => {
       cursorActiveRef.current = true;
     };
-    const onLeave = () => {
+    const deactivate = () => {
       cursorActiveRef.current = false;
     };
-    canvas.addEventListener("pointerenter", onEnter);
-    canvas.addEventListener("pointerleave", onLeave);
-    window.addEventListener("blur", onLeave);
+    canvas.addEventListener("pointerenter", activate);
+    canvas.addEventListener("pointermove", activate);
+    canvas.addEventListener("pointerleave", deactivate);
+    window.addEventListener("blur", deactivate);
     return () => {
-      canvas.removeEventListener("pointerenter", onEnter);
-      canvas.removeEventListener("pointerleave", onLeave);
-      window.removeEventListener("blur", onLeave);
+      canvas.removeEventListener("pointerenter", activate);
+      canvas.removeEventListener("pointermove", activate);
+      canvas.removeEventListener("pointerleave", deactivate);
+      window.removeEventListener("blur", deactivate);
     };
   }, [gl]);
 

@@ -58,7 +58,16 @@ function startWithAutoUnlock() {
   galleryIdle = playSampleLoop(GALLERY_IDLE_URL, GALLERY_IDLE_VOLUME);
 
   // If audio is still suspended (autoplay-blocked), arm one-shot
-  // listeners that resume the context the moment the user does anything.
+  // listeners that resume the context the moment the user does
+  // anything that browsers actually count as a "user gesture."
+  //
+  // CRITICAL: only events that browsers treat as real gestures unlock
+  // an AudioContext — `click`, `pointerdown`, `keydown`, `touchstart`.
+  // Including non-gesture events here (e.g. `pointermove`, `scroll`,
+  // `wheel`) is a footgun: the first one fires, runs `cleanup()` which
+  // removes ALL listeners, but the audio context stays suspended — so
+  // a subsequent real click has nothing armed to unlock it. Result:
+  // the user has to click, hear nothing, then click again. Don't.
   if (typeof window === "undefined") return;
   let armed = true;
   const handler = () => {
@@ -69,11 +78,8 @@ function startWithAutoUnlock() {
   };
   const events: (keyof WindowEventMap)[] = [
     "pointerdown",
-    "pointermove",
     "keydown",
-    "scroll",
     "touchstart",
-    "wheel",
   ];
   const cleanup = () => {
     for (const ev of events) {
