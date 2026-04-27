@@ -156,7 +156,7 @@ function handleCymbalToggle() {
 
 // ---- Button-local tuning -------------------------------------------------
 const BUTTON = {
-  label: "NOS PROJETS",
+  label: "OUR PROJECTS",
   /** Target route on click. */
   href: "/projects",
 
@@ -300,6 +300,9 @@ export function ProjectsButton() {
   useLayoutEffect(() => {
     let cancelled = false;
     const run = () => {
+      // OUR PROJECTS label LIVES inside the green-box volume, so we don't
+      // filter its shards — only the surrounding plaque/letter clouds get
+      // culled by `filterOutsideGreenBox` in suspended-cloud.tsx.
       const p = computeButtonPlacements();
       if (!cancelled) setPlacements(p);
     };
@@ -610,7 +613,16 @@ export function ProjectsButton() {
           : 0)
     : TUNING.buttonCenterY;
 
+  /** True while INSPECT debug mode is active — when set, hover/click on
+   *  the NOS PROJETS hitbox become no-ops so the user can scroll-zoom
+   *  and Alt+click strays without accidentally triggering the showcase
+   *  morph or the light/dark switch. */
+  const inspectActive = () =>
+    typeof window !== "undefined" &&
+    (window as unknown as { __inspect?: boolean }).__inspect === true;
+
   const onOver = (e: ThreeEvent<PointerEvent>) => {
+    if (inspectActive()) return;
     e.stopPropagation();
     setHover(true);
     setCursorHover(true);
@@ -619,11 +631,14 @@ export function ProjectsButton() {
     });
   };
   const onOut = (e: ThreeEvent<PointerEvent>) => {
+    // Always allow onOut so a hover state can't get stuck if INSPECT
+    // toggled while the cursor was over the button.
     e.stopPropagation();
     setHover(false);
     setCursorHover(false);
   };
   const onClick = (e: ThreeEvent<MouseEvent>) => {
+    if (inspectActive()) return;
     e.stopPropagation();
     unlockAudio();
     if (mode === "off" && typeof window !== "undefined") {

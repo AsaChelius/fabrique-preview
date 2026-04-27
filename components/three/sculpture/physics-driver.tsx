@@ -32,20 +32,24 @@ import { stepPhysics, type ShardPhysicsState } from "./physics";
  *  ~0.04 reads as a noticeable gust without feeling like the cursor
  *  yanked the sculpture. */
 const WIND_PRESETS: Array<{ x: number; y: number; durationS: number }> = [
-  { x: 0.32, y: 0.0, durationS: 2.6 }, // gust right
-  { x: -0.3, y: 0.0, durationS: 2.7 }, // gust left
-  { x: 0.22, y: -0.12, durationS: 2.4 }, // diagonal SE
-  { x: -0.2, y: -0.1, durationS: 2.4 }, // diagonal SW
-  { x: 0.0, y: -0.18, durationS: 2.3 }, // downward draft
-  { x: 0.16, y: 0.1, durationS: 2.8 }, // upward swirl
+  // Wind only blows horizontally. Each preset's durationS is the time
+  // for one full sweep across the sculpture — longer durations mean
+  // the gust traverses more slowly, like a long lazy breeze instead
+  // of a quick puff.
+  { x: 0.32, y: 0.0, durationS: 6.5 }, // strong gust right
+  { x: -0.3, y: 0.0, durationS: 6.8 }, // strong gust left
+  { x: 0.22, y: 0.0, durationS: 6.0 }, // softer right
+  { x: -0.2, y: 0.0, durationS: 6.0 }, // softer left
+  { x: 0.18, y: 0.0, durationS: 7.0 }, // gentle right
+  { x: -0.16, y: 0.0, durationS: 7.0 }, // gentle left
 ];
 
-const WIND_RAMP_S = 0.28;
-const WIND_FADE_S = 1.2;
-/** Mean delay between gusts (seconds). Each gust randomizes around
- *  this so it never feels metronomic. */
-const WIND_INTERVAL_BASE_S = 3.5;
-const WIND_INTERVAL_JITTER_S = 1.8;
+const WIND_RAMP_S = 0.7;
+const WIND_FADE_S = 2.4;
+/** Mean delay between gusts (seconds). Bumped so wind events feel
+ *  rare — long stretches of calm between each sweep. */
+const WIND_INTERVAL_BASE_S = 14.0;
+const WIND_INTERVAL_JITTER_S = 6.0;
 
 export function ShardPhysicsDriver({
   state,
@@ -98,6 +102,16 @@ export function ShardPhysicsDriver({
   }, [gl]);
 
   useFrame((_, dt) => {
+    // INSPECT debug mode — freeze all physics, zero out any accumulated
+    // offset/velocity once on entry so shards snap back to home pose.
+    const inspectActive = (window as unknown as { __inspect?: boolean }).__inspect === true;
+    if (inspectActive) {
+      const off = state.offset;
+      const vel = state.velocity;
+      for (let i = 0; i < off.length; i++) { off[i] = 0; vel[i] = 0; }
+      return;
+    }
+
     // ---- Idle wind: schedule + envelope --------------------------------
     const w = wind.current;
     w.clock += dt;

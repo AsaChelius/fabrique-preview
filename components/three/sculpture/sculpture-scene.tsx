@@ -25,7 +25,9 @@ import { useSculpturePalette, type SculpturePalette } from "./palette";
 import { TUNING } from "./tuning";
 import { onReveal } from "./reveal-bus";
 import { setCursorHover, resetCursorHover } from "./cursor-bus";
-import { spawnDrop, pruneDrops } from "./ripple-bus";
+import { pruneDrops } from "./ripple-bus";
+import { startFall, isFalling, isFallen } from "./fall-bus";
+import { getSharedClouds } from "./suspended-cloud";
 import { WaterRipples } from "./water-ripples";
 import {
   SOUND_ASSETS,
@@ -84,6 +86,7 @@ export function SculptureScene() {
         <ResponsiveCamera />
         <RevealCamera />
         <RippleScheduler />
+        <FallScheduler />
         <SuspendedCloud />
         <ProjectsButton />
         <CardHitboxes />
@@ -551,6 +554,15 @@ function ResponsiveCamera() {
 }
 
 /**
+ * Reveal-animation handshake. Set true by RevealCamera while the
+ * overture-to-sweet-spot pan is running; nothing else moves the camera
+ * once the camera-drag (OrbitControl) was retired.
+ */
+const _orbit = {
+  revealInProgress: false,
+};
+
+/**
  * Camera pan from an overture pose to the sweet-spot. While the pan runs,
  * shards appear as a scattered cloud; at t=1 the camera sits exactly at
  * (0, 0, cameraZ), the rays converge, and FABRIQUE resolves — the reveal.
@@ -561,8 +573,6 @@ function ResponsiveCamera() {
  */
 function RevealCamera() {
   const { camera } = useThree();
-  // null = idle (camera stays at sweet-spot); number = ms timestamp when
-  // the current pan started.
   const startRef = useRef<number | null>(null);
   const endPos = useRef(new THREE.Vector3(0, 0, TUNING.cameraZ));
   const startPos = useRef(
@@ -573,48 +583,30 @@ function RevealCamera() {
     ),
   );
 
-  // Kick off on mount.
   useEffect(() => {
     startRef.current = performance.now();
+    _orbit.revealInProgress = true;
     return onReveal(() => {
       startRef.current = performance.now();
+      _orbit.revealInProgress = true;
     });
   }, []);
 
-  useFrame((state) => {
+  useFrame(() => {
     const started = startRef.current;
-    const cam = camera as PerspectiveCameraImpl;
-    // Parallax targets are always computed — during the reveal they
-    // ramp in with the easing (so the mouse already has influence as
-    // the sculpture resolves, instead of nothing happening for ~3s).
-    const parallaxX = state.pointer.x * TUNING.tiltAmountX;
-    const parallaxY = state.pointer.y * TUNING.tiltAmountY;
+    if (started == null) return; // OrbitControl owns the camera when idle.
 
-    if (started == null) {
-      // Idle: lerp toward the full parallax offset.
-      cam.position.x += (parallaxX - cam.position.x) * TUNING.tiltLerp;
-      cam.position.y += (parallaxY - cam.position.y) * TUNING.tiltLerp;
-      cam.lookAt(0, 0, 0);
-      return;
-    }
+    const cam = camera as PerspectiveCameraImpl;
     const elapsed = performance.now() - started;
     const t = Math.min(1, elapsed / TUNING.revealDurationMs);
-    // easeOutCubic — quick move that settles gently onto the sweet-spot.
     const eased = 1 - Math.pow(1 - t, 3);
 
-    // Base: lerp from overture to sweet-spot.
     cam.position.lerpVectors(startPos.current, endPos.current, eased);
-    // Parallax additive on top, scaled by `eased` so it ramps in
-    // alongside the reveal rather than snapping on at t=1. At eased≈0
-    // the parallax contribution is ~0 (camera stays at overture
-    // position); at eased=1 it's full parallax and blends seamlessly
-    // into the idle branch next frame.
-    cam.position.x += parallaxX * eased;
-    cam.position.y += parallaxY * eased;
     cam.lookAt(0, 0, 0);
 
     if (t >= 1) {
       startRef.current = null;
+      _orbit.revealInProgress = false;
     }
   });
 
@@ -622,40 +614,70 @@ function RevealCamera() {
 }
 
 /**
- * Spawns drop-style ripples on a randomized cadence and prunes expired
- * drops once per frame. The mirror copy of <Shards /> reads the bus
- * directly — this scheduler only manages the spawn timing.
- *
- * Drops land within the rectangle covered by the FABRIQUE plaque + a
- * margin, so the ripples appear to come from objects near the
- * sculpture (rather than randomly on the open water).
+ * Drop ripples are now sourced exclusively from falling shards (see
+ * FallScheduler). This component just prunes expired drops each frame
+ * so the bus stays clean.
  */
 function RippleScheduler() {
-  const nextAtRef = useRef(2.5); // first drop ~2.5s after mount
+  useFrame(({ clock }) => {
+    pruneDrops(clock.elapsedTime);
+  });
+  return null;
+}
+
+/**
+ * Periodically picks a random shard from the FABRIQUE sculpture and
+ * makes it fall into the water. The shard's free-fall trajectory is
+ * computed in shards.tsx; when it hits the floor plane a drop ripple
+ * is spawned at the impact point and the shard is hidden.
+ *
+ * Shards are picked from the upper portion of the sculpture so the
+ * fall reads as "a piece detaching from the sign" rather than
+ * "something materialized at the water level." The fall takes
+ * ~1.0–1.5s under gentle gravity (g = 5.0 in shards.tsx), enough for
+ * the eye to track.
+ */
+function FallScheduler() {
+  const nextAtRef = useRef(0.8); // first fall shortly after mount
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
-    pruneDrops(t);
     if (t < nextAtRef.current) return;
-    // Spawn a drop somewhere within the broader sculpture footprint.
-    const cx = (Math.random() * 2 - 1) * (TUNING.wordHalfWidth + 1.5);
-    const cy = (Math.random() * 2 - 1) * (TUNING.wordHalfWidth / 2 + 1.0);
-    spawnDrop({
-      cx,
-      cy,
+
+    const clouds = getSharedClouds();
+    if (!clouds) return;
+    const home = clouds.physics.home;
+    const total = home.length / 3;
+    if (total === 0) return;
+
+    // Pick from the FRONT of the sculpture — the shards closest to
+    // the camera (largest world Z). Camera sits at z = 9 looking at
+    // origin, so high-Z shards are the front-facing ones the user
+    // sees most prominently. Sample ~50 random candidates and keep
+    // the one with the highest Z that isn't already falling/fallen.
+    let best = -1;
+    let bestZ = -Infinity;
+    let bestY = 0;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const idx = Math.floor(Math.random() * total);
+      if (isFallen(idx) || isFalling(idx)) continue;
+      const z = home[idx * 3 + 2];
+      if (z > bestZ) {
+        bestZ = z;
+        bestY = home[idx * 3 + 1];
+        best = idx;
+      }
+    }
+    if (best < 0) return;
+
+    startFall({
+      shardIndex: best,
       startT: t,
-      lifeS: 5.5 + Math.random() * 1.8,
-      // Big amplitude so the concentric rings actually pop on the water
-      // (the shader brightens with this value).
-      amp: 0.16 + Math.random() * 0.07,
-      // Slower speed so the rings linger and the user can watch them
-      // expand. Faster than human reflex still, but visible.
-      speed: 1.0 + Math.random() * 0.5,
-      // Wider rings so each crest is clearly visible (not micro-chop).
-      wavelength: 0.7 + Math.random() * 0.4,
+      startY: bestY,
     });
-    // Schedule next drop 1.5–3.5s out — more frequent than before so
-    // there's almost always a ripple in motion.
-    nextAtRef.current = t + 1.5 + Math.random() * 2.0;
+
+    // Next fall in ~0.5s — a piece detaches roughly twice per second,
+    // so the surface is constantly being disturbed by drops.
+    nextAtRef.current = t + 0.5;
   });
   return null;
 }
@@ -664,15 +686,21 @@ function RippleScheduler() {
  * Floor as a literal mirror.
  *
  * The actual mirror is the flipped <SuspendedCloud /> mounted by
- * SculptureScene below the floor plane (`<MirrorBelow />`). What we
- * see "in the floor" is the reflected geometry itself — pixel-perfect,
- * not drei's blurred reflection map.
+ * SculptureScene below the floor plane (`<MirrorBelow />`). The
+ * floor plane sits over the mirror as a tinted pane.
  *
- * This component just renders a thin tinted pane on top of that
- * mirror. Opacity is `palette.floorOpacity` — light mode = nearly
- * transparent (the mirror reads literally), grey mode = a touch
- * tinted, dark mode = semi-opaque to dim the reflection against the
- * dark plane.
+ * Pixel sampling proved the visible "horizon line" was caused by the
+ * transparent floor plane alpha-blending with the WIDE LATERAL
+ * EXTENT of the mirror copy — even at canvas X far from the central
+ * letters, the inverted PLAQUE shards bleed through, tinting the
+ * bottom half a few units off bg. The cleaner fix lives downstream:
+ * the mirror copy's <Shards /> render uses an alpha fade that goes
+ * to zero AT the floor plane (mirror tops invisible) and ramps to
+ * full visibility deeper. So the boundary at the camera horizon has
+ * no abrupt geometric edge — mirror tops dissolve into bg.
+ *
+ * Floor color matches bg in every palette so what little the floor
+ * plane covers (alpha < 1 over no-mirror water) blends invisibly.
  */
 function ReflectiveFloor({ palette }: { palette: SculpturePalette }) {
   const matRef = useRef<THREE.Material & { color: THREE.Color }>(null);
@@ -684,8 +712,6 @@ function ReflectiveFloor({ palette }: { palette: SculpturePalette }) {
   useFrame(() => {
     if (matRef.current) matRef.current.color.lerp(targetColor, TUNING.paletteLerp);
   });
-  // matKey changes per mode so the material remounts on toggle and
-  // picks up the correct base color immediately.
   const matKey = `mirror-${palette.floor}-${palette.floorOpacity.toFixed(3)}`;
   return (
     <>
@@ -693,10 +719,6 @@ function ReflectiveFloor({ palette }: { palette: SculpturePalette }) {
         rotation={[-Math.PI / 2, 0, 0]}
         position={[0, TUNING.floorY, 0]}
       >
-        {/* Massive plane so the far edge sits at the camera's horizon
-            line and the side edges are way outside any visible
-            viewport. Combined with floor color = bg color, the water
-            reads as extending to the horizon with no visible edges. */}
         <planeGeometry args={[2000, 2000]} />
         <meshBasicMaterial
           key={matKey}
@@ -708,6 +730,16 @@ function ReflectiveFloor({ palette }: { palette: SculpturePalette }) {
           transparent
           opacity={palette.floorOpacity}
           depthWrite={false}
+          // CRITICAL: scene.background bypasses tonemapping but
+          // material colors don't. With toneMapped=true (default) the
+          // floor's bg-hex color renders 5–20 units off the actual
+          // bg pixel value — verified by setting floor=#ff0000 and
+          // measuring (250,16,20) instead of pure red. This is what
+          // produced the visible seam at the camera horizon (the
+          // line between bg pixels above and floor-plane-tinted
+          // pixels below). toneMapped=false makes the floor's hex
+          // color match the bg's hex color one-to-one.
+          toneMapped={false}
         />
       </mesh>
       {/* Animated water-surface ripples — large transparent plane

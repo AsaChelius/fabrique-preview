@@ -62,13 +62,22 @@ const LIGHT: SculpturePalette = {
   background: TUNING.backgroundColor,
   letterShard: TUNING.letterShardColor,
   frameShard: "#8f949a",
-  floor: TUNING.floorColor,
+  /** EXACT match to bg so the tinted plane painted over empty water
+   *  blends to bg (mix(bg, bg, X) = bg) and the camera horizon line
+   *  becomes invisible — water and air are the same color. The
+   *  reflection only shows up where the mirror copy actually has
+   *  geometry behind the plane; that's the only visible "water". */
+  floor: TUNING.backgroundColor,
   floorReflective: false,
-  /** Very low so the water plane doesn't tint the bg differently from
-   *  the air above. The visible water comes from (a) the manual mirror
-   *  below and (b) the WaterRipples shader; the plane itself is nearly
-   *  invisible so there's no horizon edge. */
-  floorOpacity: 0.05,
+  /** Tinted glass over the manual mirror. At 0.85 only ~15% of the
+   *  mirror bleeds through — the reflection reads as a faint ghost
+   *  rather than a crisp mirror, AND the residual color seam at the
+   *  camera horizon (where mirror-tinted area meets pure bg) drops
+   *  below visual-threshold (verified by pixel sampling: bg shift
+   *  Δ ≈ (1, 2, 2) instead of (3, 9, 8) at lower opacities).
+   *  Tradeoff: the reflection is subtle. That's the right read for
+   *  "water surface", not "polished marble". */
+  floorOpacity: 0.85,
   floorMirror: 1.0,
   floorMixStrength: 1.0,
   floorMixContrast: 1.0,
@@ -92,12 +101,17 @@ const LIGHT: SculpturePalette = {
 // dialled in so the water reflection picks up the warm ambient bg
 // while staying visibly liquid.
 const SUNSET: SculpturePalette = {
-  background: "#e89260",
+  /** Was a dusty peach (#e89260). Pushed warmer/brighter so the
+   *  scene reads as actual sunset sky rather than grey-orange paint. */
+  background: "#ff7a3c",
   letterShard: "#1f1208",
-  frameShard: "#a85f33",
-  floor: "#e89260",
+  frameShard: "#b8612f",
+  /** Exact bg match — air and water indistinguishable in empty areas. */
+  floor: "#ff7a3c",
   floorReflective: false,
-  floorOpacity: 0.05,
+  /** See LIGHT comment — 0.85 puts the seam below visual threshold
+   *  while keeping a faint, ghost-like reflection visible. */
+  floorOpacity: 0.85,
   floorMirror: 1.0,
   floorMixStrength: 1.0,
   floorMixContrast: 1.0,
@@ -108,23 +122,26 @@ const SUNSET: SculpturePalette = {
   projectsBase: "#3a1f10",
   projectsEmissive: "#ffd48a",
   projectsWire: "#8b5232",
-  /** "Sun" key light — warm gold, deliberately strong so it casts the
-   *  scene's directional shadows on the metal pieces without needing a
-   *  visible disk in the sky. */
-  keyLight: "#ffaa55",
+  /** "Sun" key light — warm gold, brighter to match the more
+   *  saturated sky. */
+  keyLight: "#ffb866",
   /** Fill light — the cool side of the sky opposite the warm sun. */
   fillLight: "#5a6a98",
   /** Rim light — gentle warm haze on the back edges. */
-  rimLight: "#f4cea0",
+  rimLight: "#ffd5a8",
 };
 
 const DARK: SculpturePalette = {
   background: "#030405",
   letterShard: "#f2f0ea",
   frameShard: "#4b4741",
-  floor: "#000000",
+  /** Exact bg match — was #000000 vs bg #030405 which produced a
+   *  faintly visible horizon line at high opacity. */
+  floor: "#030405",
   floorReflective: false,
-  floorOpacity: 0.68,
+  /** Dark mode tolerates a touch more reflection because the mirror's
+   *  dark colors are closer to bg, so the seam is naturally smaller. */
+  floorOpacity: 0.92,
   floorMirror: 1.0,
   floorMixStrength: 1.0,
   floorMixContrast: 1.0,

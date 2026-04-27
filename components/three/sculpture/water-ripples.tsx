@@ -26,9 +26,9 @@ import { useMemo, useRef } from "react";
 import * as THREE from "three";
 import { TUNING } from "./tuning";
 import type { SculpturePalette } from "./palette";
-import { getDrops, wind as rippleWind } from "./ripple-bus";
+import { getDrops } from "./ripple-bus";
 
-const MAX_DROPS = 6;
+const MAX_DROPS = 10;
 
 const VERTEX = /* glsl */ `
 varying vec3 vWorld;
@@ -45,92 +45,66 @@ varying vec3 vWorld;
 
 uniform float u_time;
 uniform vec3 u_bgColor;
-uniform vec3 u_crestColor;
-uniform vec3 u_troughColor;
 uniform float u_baseAlpha;
 uniform float u_crestAlpha;
 
-uniform vec2 u_windDir1;
-uniform float u_windK1;
-uniform float u_windOmega1;
-uniform float u_windAmp1;
-uniform vec2 u_windDir2;
-uniform float u_windK2;
-uniform float u_windOmega2;
-uniform float u_windAmp2;
-
-// Drop uniforms: arrays of size MAX_DROPS. Each slot has:
-//   x: cx, y: cy, z: startT, w: lifeS
-// And a parallel array for amp/speed/wavelength.
-uniform vec4 u_drops[6];
-uniform vec3 u_dropProps[6]; // amp, speed, wavelength
+uniform vec4 u_drops[10];
+uniform vec3 u_dropProps[10]; // amp, speed, wavelength
 uniform int u_dropCount;
 
+/**
+ * Concentric drop ripples — sin packets expanding from each impact
+ * point. Empty-flat-water → wave = 0 → transparent → horizon invisible.
+ */
 void main() {
-  vec2 world = vWorld.xz; // floor plane lies on XZ; world.x and world.z map to the visible XY of the water.
+  vec2 world = vWorld.xz;
 
-  // Wind crossed sine waves are intentionally OFF — their bright crest
-  // streaks read as glimmers / sun-glints across the water and the
-  // user wanted those gone entirely. Only DROP ripples (point splashes)
-  // remain visible. Keep the uniforms wired so we can re-enable later
-  // without restructuring the shader.
   float wave = 0.0;
 
-  // Drop ripples — concentric circles.
-  for (int i = 0; i < 6; i++) {
+  // ── Drop ripples ────────────────────────────────────────────────
+  for (int i = 0; i < 10; i++) {
     if (i >= u_dropCount) break;
     vec4 drop = u_drops[i];
     vec3 props = u_dropProps[i];
     float age = u_time - drop.z;
     if (age < 0.0 || age > drop.w) continue;
-    float dist = distance(world, drop.xy);
+
+    vec2 toPoint = world - drop.xy;
+    float dist = length(toPoint);
     float ringR = age * props.y;
     float radialDelta = dist - ringR;
-    float ringWidth = props.z * 1.5;
-    if (abs(radialDelta) > ringWidth * 1.8) continue;
-    float radialEnv = exp(-radialDelta * radialDelta / (ringWidth * ringWidth));
+    float envWidth = props.z * 1.2;
+    if (abs(radialDelta) > envWidth * 1.6) continue;
+
+    float radialEnv = exp(-radialDelta * radialDelta / (envWidth * envWidth));
     float timeEnv = 1.0 - age / drop.w;
-    wave += sin(radialDelta * 6.2831 / props.z) * props.x * radialEnv * timeEnv;
+    float phase = radialDelta * 6.2831 / props.z;
+    wave += sin(phase) * props.x * radialEnv * timeEnv;
   }
 
-  // Drops are normalized against a fixed reference amp (the typical
-  // peak drop amplitude) instead of the wind amp — wind no longer
-  // contributes to wave, so dividing by it would NaN.
-  float crest = clamp(wave / 0.18, 0.0, 1.0);
-  // Only the concentric drop ripples brighten now. With wind zeroed
-  // there are no streak glimmers left across the water — just point
-  // splashes that pulse outward and fade.
-  vec3 col = mix(u_bgColor, u_crestColor, crest * 0.5);
-  float alpha = u_baseAlpha + crest * u_crestAlpha;
-  gl_FragColor = vec4(col, alpha);
+  // ── Shading ─────────────────────────────────────────────────────
+  float ampRef = 0.18;
+  float crest = clamp(wave / ampRef, 0.0, 1.0);
+  float trough = clamp(-wave / ampRef, 0.0, 1.0);
+  float waveMag = max(crest, trough);
+
+  vec3 col = u_bgColor;
+  col = mix(col, vec3(1.0), crest * 0.7);
+  col = mix(col, u_bgColor * 0.6, trough * 0.5);
+
+  float alpha = u_baseAlpha + waveMag * u_crestAlpha;
+  gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));
 }
 `;
 
 export function WaterRipples({ palette }: { palette: SculpturePalette }) {
-  const matRef = useRef<THREE.ShaderMaterial>(null);
-
   // Build initial uniforms once.
   const uniforms = useMemo(() => {
     return {
       u_time: { value: 0 },
       u_bgColor: { value: new THREE.Color(palette.background) },
-      u_crestColor: { value: new THREE.Color("#ffffff") },
-      u_troughColor: { value: new THREE.Color("#000000") },
       u_baseAlpha: { value: 0.0 },
-      /** Higher so crests are clearly visible without being garish. */
-      u_crestAlpha: { value: 0.42 },
-      u_windDir1: {
-        value: new THREE.Vector2(rippleWind.dirX, rippleWind.dirY).normalize(),
-      },
-      u_windK1: { value: rippleWind.k },
-      u_windOmega1: { value: rippleWind.omega },
-      u_windAmp1: { value: rippleWind.amp },
-      u_windDir2: {
-        value: new THREE.Vector2(rippleWind.dir2X, rippleWind.dir2Y).normalize(),
-      },
-      u_windK2: { value: rippleWind.k2 },
-      u_windOmega2: { value: rippleWind.omega2 },
-      u_windAmp2: { value: rippleWind.amp2 },
+      u_crestAlpha: { value: 0.7 },
       u_drops: {
         value: Array.from({ length: MAX_DROPS }, () => new THREE.Vector4()),
       },
@@ -142,7 +116,7 @@ export function WaterRipples({ palette }: { palette: SculpturePalette }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Track palette → bg/crest/trough color targets that lerp each frame.
+  // Track palette → bg color target that lerps each frame.
   const targetBg = useMemo(
     () => new THREE.Color(palette.background),
     [palette.background],
@@ -150,7 +124,6 @@ export function WaterRipples({ palette }: { palette: SculpturePalette }) {
 
   useFrame(({ clock }) => {
     uniforms.u_time.value = clock.elapsedTime;
-    // Lerp bg color toward palette so mode toggles animate.
     uniforms.u_bgColor.value.lerp(targetBg, TUNING.paletteLerp);
 
     // Push live drops into uniforms.
@@ -164,20 +137,30 @@ export function WaterRipples({ palette }: { palette: SculpturePalette }) {
     uniforms.u_dropCount.value = n;
   });
 
+  // Construct the ShaderMaterial imperatively so Three.js builds its
+  // internal uniformsList from this exact uniforms object. The previous
+  // JSX `<shaderMaterial uniforms={x} />` route reassigned uniforms
+  // after construction; the renderer kept uploading from a stale
+  // uniformsList and our useFrame mutations never reached the GPU.
+  const material = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader: VERTEX,
+        fragmentShader: FRAGMENT,
+        transparent: true,
+        depthWrite: false,
+      }),
+    [uniforms],
+  );
+
   return (
     <mesh
       rotation={[-Math.PI / 2, 0, 0]}
       position={[0, TUNING.floorY + 0.01, 0]}
     >
       <planeGeometry args={[2000, 2000]} />
-      <shaderMaterial
-        ref={matRef}
-        uniforms={uniforms}
-        vertexShader={VERTEX}
-        fragmentShader={FRAGMENT}
-        transparent
-        depthWrite={false}
-      />
+      <primitive object={material} attach="material" />
     </mesh>
   );
 }

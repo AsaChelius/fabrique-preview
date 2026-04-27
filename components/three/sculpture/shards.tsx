@@ -27,7 +27,9 @@ import { TUNING } from "./tuning";
 import type { Placement } from "./placements";
 import type { ShardPhysicsState } from "./physics";
 import { setCursorHover } from "./cursor-bus";
-import { getDrops, wind as rippleWind } from "./ripple-bus";
+import { getDrops } from "./ripple-bus";
+import { isFalling, isFallen, markFallen } from "./fall-bus";
+import { spawnDrop } from "./ripple-bus";
 
 export type ShowcaseRef = {
   active: boolean;
@@ -248,6 +250,10 @@ export function Shards({
     const hoveredCard = showcaseRef.current.hoveredCard;
     const dominantCard = showcaseRef.current.dominantCard;
 
+    // INSPECT debug mode — freeze sway/wind/snake/ambient motion so the
+    // sculpture stops twitching while the user lines up Alt+clicks.
+    const inspectActive = (window as unknown as { __inspect?: boolean }).__inspect === true;
+
     // Showcase motion mode (see ShowcaseMotion type for details).
     // `morph` is the same fade factor that drives the chameleon color,
     // so motion + color ramp together when the showcase opens / closes.
@@ -256,9 +262,9 @@ export function Shards({
     // sway fades out in "still" and "snake" modes — both want the
     // wireframe/pose locked; "wind" keeps full sway underneath the
     // wind layer.
-    const swayScale = isWind ? 1 : 1 - morph;
-    const windOn = isWind && morph > 0.005;
-    const snakeOn = isSnake && morph > 0.005 && edgeFlow !== null;
+    const swayScale = inspectActive ? 0 : (isWind ? 1 : 1 - morph);
+    const windOn = !inspectActive && isWind && morph > 0.005;
+    const snakeOn = !inspectActive && isSnake && morph > 0.005 && edgeFlow !== null;
     const wScale = morph;
     const wax = TUNING.windAmpX;
     const way = TUNING.windAmpY;
@@ -285,6 +291,64 @@ export function Shards({
     for (let i = 0; i < N; i++) {
       const gi = stateStart + i;
       const h3 = gi * 3;
+
+      // ── Falling-shard handling ──────────────────────────────────
+      // A shard that has been picked to fall overrides the normal
+      // sway/offset/ripple compute path. Already-fallen shards are
+      // hidden via scale = 0 (their slot in the InstancedMesh stays
+      // allocated but draws nothing).
+      if (isFallen(gi)) {
+        scale.set(0, 0, 0);
+        m.compose(pos, quat, scale);
+        mesh.setMatrixAt(i, m);
+        scale.set(1, 1, 1);
+        continue;
+      }
+      const fallState = isFalling(gi);
+      if (fallState) {
+        const elapsed = t - fallState.startT;
+        const g = 5.0; // gentle gravity for a cinematic drop
+        const fallY = fallState.startY - 0.5 * g * elapsed * elapsed;
+        const xsHome = s.home[h3];
+        const zsHome = s.home[h3 + 2];
+        if (fallY <= TUNING.floorY) {
+          // Hit the water — spawn ripple at the impact point and
+          // mark the shard as fallen. The ripple's (cx, cy) matches
+          // the shard's home X/Z, so it's directly under where the
+          // piece detached from the sign.
+          spawnDrop({
+            cx: xsHome,
+            cy: zsHome,
+            startT: t,
+            lifeS: 4.0,
+            amp: 0.18,
+            speed: 0.45,
+            wavelength: 0.32,
+          });
+          markFallen(gi);
+          scale.set(0, 0, 0);
+          m.compose(pos, quat, scale);
+          mesh.setMatrixAt(i, m);
+          scale.set(1, 1, 1);
+          continue;
+        }
+        // In flight — render the actual metal piece at its real size
+        // and base orientation, just translated downward by the
+        // free-fall trajectory. The shard keeps its natural shape so
+        // it reads as one of the sculpture's metal fragments
+        // detaching, not a stand-in shape.
+        pos.set(xsHome, fallY, zsHome);
+        quat.set(
+          baseQuats[i * 4],
+          baseQuats[i * 4 + 1],
+          baseQuats[i * 4 + 2],
+          baseQuats[i * 4 + 3],
+        );
+        m.compose(pos, quat, scale);
+        mesh.setMatrixAt(i, m);
+        continue;
+      }
+
       const phase = s.swayPhase[gi];
       const amp = s.swayAmp[gi];
       const freq = s.swayFreq[gi];
@@ -315,7 +379,7 @@ export function Shards({
         dz = ez * wave;
       }
 
-      if (ambientMotion > 0.005) {
+      if (!inspectActive && ambientMotion > 0.005) {
         const w3 = i * 3;
         const breathe =
           0.65 + 0.35 * Math.sin(t * 0.72 + shardSeeds[i] * Math.PI * 2);
@@ -336,51 +400,33 @@ export function Shards({
           breathe;
       }
 
-      // Water ripple — only applied to the mirror copy.
-      //   1. Base layer: two layered sin waves keyed off world XY for
-      //      the small omnipresent micro-chop on the surface.
-      //   2. Wind ripples: directional traveling waves (two crossed)
-      //      adding a sense of breeze blowing across the water.
-      //   3. Drop ripples: concentric circles expanding from impact
-      //      points spawned by RippleScheduler. Each ripple is a
-      //      Gaussian bump traveling outward at the drop's speed,
-      //      decaying over its lifetime.
+      // Water ripple — only applied to the mirror copy. The wave
+      // field on the floor plane is computed at the FLOOR projection
+      // of this shard's reflection (camera-ray ∩ floor), so a ripple
+      // at floor (cx, cy) actually warps the reflection where the
+      // camera sees it on screen. Same math as the shader's drop +
+      // gust loops.
       let rippleX = 0;
       let rippleZ = 0;
       if (rippleAmp > 0) {
-        const wxh = s.home[h3];
-        const wyh = s.home[h3 + 1];
+        const xs = s.home[h3];
+        const ys = s.home[h3 + 1];
+        const zs = s.home[h3 + 2];
+        // Floor projection: line from camera (0, 0, 9) through this
+        // shard's mirror image (xs, 2*floorY - ys, zs) crosses the
+        // floor at parameter t = -floorY / (floorY - ys).
+        // Simplified: with floorY ≈ -2.05 the projected (xfl, zfl) is
+        // ~ (xs * f, 9 + f*(zs - 9)) where f = floorY / (floorY - ys).
+        // Avoid division by zero / sign flip when ys is below floor.
+        const denom = -2.05 - ys;
+        const proj = denom !== 0 ? -2.05 / denom : 0.5;
+        const projT = Math.max(0.05, Math.min(1.5, proj));
+        const wxh = projT * xs;
+        const wyh = 9.0 + projT * (zs - 9.0);
 
-        // 1. Base micro-chop (kept from earlier — small + always on).
-        rippleX =
-          (Math.sin(t * rippleK1 + wxh * 1.7 + wyh * 0.9) +
-            0.6 * Math.sin(t * rippleK2 + wxh * 0.5 - wyh * 1.3)) *
-          rippleAmp;
-        rippleZ =
-          (Math.cos(t * rippleK1 * 1.13 + wxh * 0.8 + wyh * 1.2) +
-            0.5 * Math.sin(t * rippleK2 * 0.91 - wxh * 1.4)) *
-          rippleAmp *
-          0.8;
-
-        // 2. Wind ripples — two crossed directional waves.
-        const w = rippleWind;
-        const phase1 = wxh * w.dirX * w.k + wyh * w.dirY * w.k - t * w.omega;
-        const phase2 =
-          wxh * w.dir2X * w.k2 + wyh * w.dir2Y * w.k2 - t * w.omega2;
-        const windDX =
-          Math.sin(phase1) * w.amp * w.dirX +
-          Math.sin(phase2) * w.amp2 * w.dir2X;
-        const windDZ =
-          Math.sin(phase1) * w.amp * w.dirY +
-          Math.sin(phase2) * w.amp2 * w.dir2Y;
-        rippleX += windDX;
-        rippleZ += windDZ;
-
-        // 3. Drop ripples — concentric expanding rings. For each live
-        //    drop, the wave at this shard's position is sin(2π*(r-rt)/λ)
-        //    multiplied by a radial Gaussian envelope (so the energy is
-        //    concentrated in a thin ring, not a global oscillation) AND
-        //    a temporal decay envelope.
+        // 1. Drop ripples — concentric expanding rings on the floor.
+        //    Same math as the shader so visible surface ripples and
+        //    reflection warping stay perfectly synced.
         const drops = getDrops();
         for (let di = 0; di < drops.length; di++) {
           const drop = drops[di];
@@ -392,8 +438,6 @@ export function Shards({
           const ringR = age * drop.speed;
           const ringWidth = drop.wavelength * 1.6;
           const radialDelta = dist - ringR;
-          // Gaussian-ish envelope: only ring within ±ringWidth of the
-          // current radius receives any displacement.
           if (Math.abs(radialDelta) > ringWidth * 1.8) continue;
           const radialEnv = Math.exp(
             -(radialDelta * radialDelta) / (ringWidth * ringWidth),
@@ -405,12 +449,12 @@ export function Shards({
             radialEnv *
             timeEnv;
           if (dist > 1e-4) {
-            // Project radial displacement onto XY direction.
             const invDist = 1 / dist;
             rippleX += (ddx * invDist) * wave;
             rippleZ += (ddy * invDist) * wave;
           }
         }
+
       }
 
       pos.set(

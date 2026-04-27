@@ -13,7 +13,7 @@ import {
 import { SHOWCASE_LAYOUT } from "./showcase-targets";
 import { setCursorHover } from "./cursor-bus";
 import { TUNING } from "./tuning";
-import type { Placement } from "./placements";
+import { isInsideGreenBox, type Placement } from "./placements";
 import { useSculpturePalette } from "./palette";
 import { SOUND_ASSETS, playSample, preloadSample, unlockAudio } from "@/lib/sound";
 
@@ -64,8 +64,25 @@ export function AboutUsMetalButton() {
   useLayoutEffect(() => {
     let cancelled = false;
     const run = () => {
-      const target = computeAboutPlacements(ABOUT.targetY);
-      const source = computeAboutPlacements(ABOUT.sourceY);
+      const targetRaw = computeAboutPlacements(ABOUT.targetY);
+      const sourceRaw = computeAboutPlacements(ABOUT.sourceY);
+      // TEMP DEBUG: cull any shard whose source OR target position is
+      // inside the green box. Source AND target arrays must stay
+      // index-aligned for the morph lerp, so we filter them together.
+      const target: Placement[] = [];
+      const source: Placement[] = [];
+      for (let i = 0; i < sourceRaw.length; i++) {
+        const s = sourceRaw[i];
+        const t = targetRaw[i];
+        if (
+          isInsideGreenBox(s.x, s.y, s.z) ||
+          isInsideGreenBox(t.x, t.y, t.z)
+        ) {
+          continue;
+        }
+        source.push(s);
+        target.push(t);
+      }
       if (!cancelled) {
         setTargetPlacements(target);
         setSourcePlacements(source);
